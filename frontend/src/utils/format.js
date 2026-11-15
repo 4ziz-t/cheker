@@ -100,6 +100,7 @@ export function parseIpList(text) {
 }
 
 export const CHECKER_TITLES = {
+  latencylab: 'Latency Lab',
   cheburcheck: 'Реестр РКН',
   cheburcheck_probe: 'ТСПУ (пробы)',
   geopinger_tcp: 'TCP из РФ',
@@ -114,6 +115,13 @@ export function describeCheck(name, d) {
   if (d.probes?.length) {
     const bad = d.probes.filter((p) => p.verdicts.some((v) => v !== 'доступен' && v !== 'неопределённо')).length;
     parts.push(`проб: ${d.probes.length}${bad ? `, с блокировкой: ${bad}` : ''}`);
+  }
+  if (d.operators_ok || d.operators_fail) {
+    const ok = d.operators_ok || [];
+    const fail = d.operators_fail || [];
+    parts.push(`порт ${d.port}: доступен у ${ok.length}/${ok.length + fail.length} операторов`);
+    if (fail.length) parts.push(`недоступен: ${fail.join(', ')}`);
+    if (d.wire_ok === false) parts.push('по проводу тоже недоступен');
   }
   if (d.ru) parts.push(`порт ${d.port}: подключились ${d.ru} узлов РФ`);
   if (d.failed_places?.length) parts.push(`не прошло: ${d.failed_places.join(', ')}`);

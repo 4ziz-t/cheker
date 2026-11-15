@@ -1,14 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { dashboardApi, settingsApi } from '../api/index.js';
+import GeoPingerSettings from '../components/GeoPingerSettings.jsx';
 import { IconLogout, IconSend } from '../components/Icons.jsx';
+import IntegrationsPanel from '../components/IntegrationsPanel.jsx';
+import LatencyLabSettings from '../components/LatencyLabSettings.jsx';
 import PageHeader, { ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
 import Toggle from '../components/Toggle.jsx';
-import GeoPingerSettings from '../components/GeoPingerSettings.jsx';
-import IntegrationsPanel from '../components/IntegrationsPanel.jsx';
 import '../styles/settings.css';
 
+const TABS = [
+  { key: 'integrations', label: 'Интеграции' },
+  { key: 'checks', label: 'Проверка' },
+  { key: 'sources', label: 'Источники' },
+  { key: 'notify', label: 'Уведомления' },
+  { key: 'system', label: 'Система' },
+];
+
+// какие источники имеют свой блок настроек
+const SOURCE_SETTINGS = {
+  latencylab: LatencyLabSettings,
+  geopinger_tcp: GeoPingerSettings,
+};
 
 function NumberField({ label, hint, value, onChange, min, max, suffix }) {
   return (
@@ -30,8 +45,23 @@ function NumberField({ label, hint, value, onChange, min, max, suffix }) {
   );
 }
 
+function Panel({ title, children, actions, wide }) {
+  return (
+    <section className={`card panel ${wide ? 'panel--wide' : ''}`}>
+      <div className="panel__head">
+        <h2 className="panel__title">{title}</h2>
+        {actions}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 export default function Settings({ onLogout }) {
   const toast = useToast();
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.some((t) => t.key === params.get('tab')) ? params.get('tab') : 'integrations';
+
   const [meta, setMeta] = useState(null);
   const [saved, setSaved] = useState(null);
   const [form, setForm] = useState(null);
@@ -40,6 +70,8 @@ export default function Settings({ onLogout }) {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState('');
   const [checkerStatus, setCheckerStatus] = useState({});
+
+  const loadCheckerStatus = () => settingsApi.checkersStatus().then(setCheckerStatus).catch(() => {});
 
   const load = async () => {
     try {
@@ -56,7 +88,7 @@ export default function Settings({ onLogout }) {
 
   useEffect(() => {
     load();
-    settingsApi.checkersStatus().then(setCheckerStatus).catch(() => {});
+    loadCheckerStatus();
   }, []);
 
   const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(saved), [form, saved]);
@@ -89,11 +121,29 @@ export default function Settings({ onLogout }) {
     }
   };
 
+  const header = (
+    <PageHeader
+      title="Настройки"
+      actions={
+        <button type="button" className="btn btn--ghost btn--danger-text" onClick={onLogout}>
+          <IconLogout size={18} />
+          <span>Выйти</span>
+        </button>
+      }
+    />
+  );
+
   if (!form) {
     return (
       <div className="page">
-        <PageHeader title="Настройки" />
-        {error ? <ErrorBox error={error} onRetry={load} /> : <div className="page-loading"><Spinner size={28} /></div>}
+        {header}
+        {error ? (
+          <ErrorBox error={error} onRetry={load} />
+        ) : (
+          <div className="page-loading">
+            <Spinner size={28} />
+          </div>
+        )}
       </div>
     );
   }
@@ -102,170 +152,229 @@ export default function Settings({ onLogout }) {
     const list = new Set(form.enabled_checkers);
     if (on) list.add(name);
     else list.delete(name);
-    set('enabled_checkers', [...list]);
+    // сохраняем порядок из реестра (первый — основной)
+    set(
+      'enabled_checkers',
+      meta.checkers.map((c) => c.name).filter((n) => list.has(n)),
+    );
   };
 
   return (
     <div className="page page--settings">
-      <PageHeader
-        title="Настройки"
-        actions={
-          <button type="button" className="btn btn--ghost btn--danger-text" onClick={onLogout}>
-            <IconLogout size={18} />
-            <span>Выйти</span>
+      {header}
+
+      <nav className="tabs" role="tablist">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            className={`tabs__item ${tab === t.key ? 'is-active' : ''}`}
+            onClick={() => setParams({ tab: t.key }, { replace: true })}
+          >
+            {t.label}
           </button>
-        }
-      />
+        ))}
+      </nav>
 
-      <h2 className="section-title">Интеграции</h2>
-      <p className="field__hint section-hint">
-        Значения из панели важнее, чем из .env. Секреты не показываются целиком — чтобы заменить, введите новое значение.
-      </p>
-      <IntegrationsPanel onChanged={() => settingsApi.checkersStatus().then(setCheckerStatus).catch(() => {})} />
+      {tab === 'integrations' && (
+        <>
+          <p className="field__hint">
+            Токены и адреса сервисов. Значения из панели важнее, чем из .env. Секреты не показываются целиком: чтобы
+            заменить, введите новое значение.
+          </p>
+          <IntegrationsPanel onChanged={loadCheckerStatus} />
+        </>
+      )}
 
-      <h2 className="section-title">Мониторинг</h2>
-      <div className="settings-grid">
-        <section className="card panel">
-          <h2 className="panel__title">Проверка доменов</h2>
-          <div className="form">
-            <NumberField
-              label="Интервал проверки"
-              suffix="мин"
-              min={1}
-              max={1440}
-              value={form.check_interval_minutes}
-              onChange={(v) => set('check_interval_minutes', v)}
-              hint="Как часто проверять все IP всех доменов"
-            />
-            <NumberField
-              label="Пауза между запросами к чекерам"
-              suffix="мс"
-              min={0}
-              max={60000}
-              value={form.checker_delay_ms}
-              onChange={(v) => set('checker_delay_ms', v)}
-              hint="Защита от лимитов (429) на стороне сервиса проверки"
-            />
-            <Toggle
-              checked={form.auto_switch_enabled}
-              onChange={(v) => set('auto_switch_enabled', v)}
-              label="Автосмена IP (глобально)"
-              hint="Выключите, чтобы временно остановить все автоматические смены"
-            />
-          </div>
-        </section>
-
-        <section className="card panel">
-          <h2 className="panel__title">Ноды Remnawave</h2>
-          <div className="form">
-            <NumberField
-              label="Интервал опроса нод"
-              suffix="сек"
-              min={10}
-              max={3600}
-              value={form.node_poll_interval_seconds}
-              onChange={(v) => set('node_poll_interval_seconds', v)}
-              hint="Как быстро вы узнаете, что нода упала"
-            />
-            <Toggle
-              checked={form.auto_import_nodes}
-              onChange={(v) => set('auto_import_nodes', v)}
-              label="Добавлять адреса нод в «Домены»"
-              hint="Новые ноды: их домен или IP сам появится во вкладке «Домены» и начнёт проверяться"
-            />
-          </div>
-        </section>
-
-        <section className="card panel">
-          <h2 className="panel__title">Источники проверки IP</h2>
-          <div className="form">
-            {meta.checkers.map((c) => (
+      {tab === 'checks' && (
+        <div className="settings-grid">
+          <Panel title="Проверка доменов">
+            <div className="form">
+              <NumberField
+                label="Интервал проверки"
+                suffix="мин"
+                min={1}
+                max={1440}
+                value={form.check_interval_minutes}
+                onChange={(v) => set('check_interval_minutes', v)}
+                hint="Как часто проверять текущие IP доменов. По умолчанию — раз в час"
+              />
               <Toggle
-                key={c.name}
-                checked={form.enabled_checkers.includes(c.name)}
-                onChange={(v) => toggleChecker(c.name, v)}
-                label={c.title}
-                hint={checkerStatus[c.name] ? `${c.description}. ${checkerStatus[c.name]}` : c.description}
+                checked={form.check_reserve_ips}
+                onChange={(v) => set('check_reserve_ips', v)}
+                label="Проверять резервные IP по расписанию"
+                hint="Выключено — резервные IP проверяются только при переключении (экономит запросы)"
               />
-            ))}
-            <span className="field__hint">IP считается заблокированным, если его видит в бане хотя бы один источник.</span>
-          </div>
-        </section>
-
-        <section className="card panel">
-          <h2 className="panel__title">GeoPinger · TCP из РФ</h2>
-          <GeoPingerSettings form={form} set={set} />
-        </section>
-
-        <section className="card panel">
-          <h2 className="panel__title">Ежедневная сводка</h2>
-          <div className="form">
-            <Toggle
-              checked={form.daily_summary_enabled}
-              onChange={(v) => set('daily_summary_enabled', v)}
-              label="Отправлять сводку"
-            />
-            <label className="field">
-              <span className="field__label">Время отправки ({status?.timezone})</span>
-              <input
-                className="input"
-                type="time"
-                value={form.daily_summary_time}
-                onChange={(e) => set('daily_summary_time', e.target.value)}
-              />
-            </label>
-            <button
-              type="button"
-              className="btn btn--ghost"
-              disabled={!!testing}
-              onClick={() => test('summary')}
-            >
-              {testing === 'summary' ? <Spinner size={16} /> : <IconSend size={16} />}
-              <span>Отправить сводку сейчас</span>
-            </button>
-          </div>
-        </section>
-
-        <section className="card panel panel--wide">
-          <div className="panel__head">
-            <h2 className="panel__title">Уведомления в Telegram</h2>
-            <button
-              type="button"
-              className="btn btn--sm btn--ghost"
-              disabled={!!testing}
-              onClick={() => test('telegram')}
-            >
-              {testing === 'telegram' ? <Spinner size={16} /> : <IconSend size={16} />}
-              <span>Тест</span>
-            </button>
-          </div>
-          <div className="notify-grid">
-            {Object.entries(meta.eventTypes).map(([key, label]) => (
               <Toggle
-                key={key}
-                checked={form.notify[key]}
-                onChange={(v) => set('notify', { ...form.notify, [key]: v })}
-                label={label}
+                checked={form.auto_switch_enabled}
+                onChange={(v) => set('auto_switch_enabled', v)}
+                label="Автосмена IP (глобально)"
+                hint="Выключите, чтобы временно остановить все автоматические смены"
               />
-            ))}
-          </div>
-        </section>
+            </div>
+          </Panel>
 
-        <section className="card panel">
-          <h2 className="panel__title">Хранение</h2>
-          <div className="form">
-            <NumberField
-              label="Хранить события"
-              suffix="дней"
-              min={1}
-              max={3650}
-              value={form.events_retention_days}
-              onChange={(v) => set('events_retention_days', v)}
-            />
-          </div>
-        </section>
+          <Panel title="Ноды Remnawave">
+            <div className="form">
+              <NumberField
+                label="Интервал опроса нод"
+                suffix="сек"
+                min={10}
+                max={3600}
+                value={form.node_poll_interval_seconds}
+                onChange={(v) => set('node_poll_interval_seconds', v)}
+                hint="Как быстро вы узнаете, что нода упала"
+              />
+              <Toggle
+                checked={form.auto_import_nodes}
+                onChange={(v) => set('auto_import_nodes', v)}
+                label="Добавлять адреса нод в «Домены»"
+                hint="Домен или IP новой ноды сам появится во вкладке «Домены» и начнёт проверяться"
+              />
+            </div>
+          </Panel>
+        </div>
+      )}
 
-      </div>
+      {tab === 'sources' && (
+        <>
+          <Panel title="Общее">
+            <div className="form">
+              <label className="field">
+                <span className="field__label">Порт для TCP-проверок (по умолчанию)</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  style={{ maxWidth: 160 }}
+                  value={form.tcp_check_port ?? ''}
+                  onChange={(e) => set('tcp_check_port', e.target.value === '' ? '' : Number(e.target.value))}
+                />
+                <span className="field__hint">
+                  Порт инбаунда на нодах (обычно 443). У домена можно указать свой на его странице.
+                </span>
+              </label>
+              <NumberField
+                label="Пауза между проверками IP"
+                suffix="мс"
+                min={0}
+                max={60000}
+                value={form.checker_delay_ms}
+                onChange={(v) => set('checker_delay_ms', v)}
+                hint="Защита от лимитов на стороне сервисов"
+              />
+              <span className="field__hint">
+                IP считается заблокированным, если его видит в бане хотя бы один включённый источник.
+              </span>
+            </div>
+          </Panel>
+
+          <div className="sources">
+            {meta.checkers.map((c, i) => {
+              const enabled = form.enabled_checkers.includes(c.name);
+              const Extra = SOURCE_SETTINGS[c.name];
+              return (
+                <section key={c.name} className={`card panel source ${enabled ? 'is-on' : ''}`}>
+                  <div className="source__head">
+                    <Toggle checked={enabled} onChange={(v) => toggleChecker(c.name, v)} label={c.title} />
+                    {i === 0 && <span className="tag">основной</span>}
+                  </div>
+                  <p className="field__hint">{c.description}</p>
+                  {checkerStatus[c.name] && <p className="source__status">{checkerStatus[c.name]}</p>}
+                  {enabled && Extra && <Extra form={form} set={set} />}
+                </section>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {tab === 'notify' && (
+        <div className="settings-grid">
+          <Panel
+            wide
+            title="Уведомления в Telegram"
+            actions={
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost"
+                disabled={!!testing}
+                onClick={() => test('telegram')}
+              >
+                {testing === 'telegram' ? <Spinner size={16} /> : <IconSend size={16} />}
+                <span>Тест</span>
+              </button>
+            }
+          >
+            <div className="notify-grid">
+              {Object.entries(meta.eventTypes).map(([key, label]) => (
+                <Toggle
+                  key={key}
+                  checked={form.notify[key]}
+                  onChange={(v) => set('notify', { ...form.notify, [key]: v })}
+                  label={label}
+                />
+              ))}
+            </div>
+          </Panel>
+
+          <Panel title="Ежедневная сводка">
+            <div className="form">
+              <Toggle
+                checked={form.daily_summary_enabled}
+                onChange={(v) => set('daily_summary_enabled', v)}
+                label="Отправлять сводку"
+              />
+              <label className="field">
+                <span className="field__label">Время отправки ({status?.timezone})</span>
+                <input
+                  className="input"
+                  type="time"
+                  style={{ maxWidth: 160 }}
+                  value={form.daily_summary_time}
+                  onChange={(e) => set('daily_summary_time', e.target.value)}
+                />
+              </label>
+              <button type="button" className="btn btn--ghost" disabled={!!testing} onClick={() => test('summary')}>
+                {testing === 'summary' ? <Spinner size={16} /> : <IconSend size={16} />}
+                <span>Отправить сводку сейчас</span>
+              </button>
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      {tab === 'system' && (
+        <div className="settings-grid">
+          <Panel title="Хранение">
+            <div className="form">
+              <NumberField
+                label="Хранить события"
+                suffix="дней"
+                min={1}
+                max={3650}
+                value={form.events_retention_days}
+                onChange={(v) => set('events_retention_days', v)}
+              />
+            </div>
+          </Panel>
+          <Panel title="О системе">
+            <dl className="sysinfo">
+              <div>
+                <dt>Часовой пояс</dt>
+                <dd>{status?.timezone}</dd>
+              </div>
+              <div>
+                <dt>Пароль входа</dt>
+                <dd>задаётся в .env (APP_PASSWORD)</dd>
+              </div>
+            </dl>
+          </Panel>
+        </div>
+      )}
 
       <div className={`savebar ${dirty ? 'is-visible' : ''}`}>
         <span>Есть несохранённые изменения</span>

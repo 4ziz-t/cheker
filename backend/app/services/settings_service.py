@@ -25,7 +25,7 @@ EVENT_TYPES: dict[str, str] = {
 }
 
 DEFAULTS: dict[str, Any] = {
-    "check_interval_minutes": 15,
+    "check_interval_minutes": 60,
     "node_poll_interval_seconds": 60,
     "auto_switch_enabled": True,
     "checker_delay_ms": 1000,
@@ -35,6 +35,10 @@ DEFAULTS: dict[str, Any] = {
     "notify": {k: True for k in EVENT_TYPES},
     "events_retention_days": 90,
     "auto_import_nodes": True,
+    "check_reserve_ips": False,
+    "latencylab_operators": [],
+    "latencylab_fail_percent": 50,
+    "latencylab_skip_whitelist": True,
     "tcp_check_port": 443,
     "geopinger_places": ["Москва", "Санкт-Петербург", "Екатеринбург", "Новосибирск", "Казань"],
     "geopinger_control_places": [],
@@ -89,3 +93,17 @@ async def get_state(db: AsyncSession, key: str, default: Any = None) -> Any:
 
 async def set_state(db: AsyncSession, key: str, value: Any) -> None:
     await _set_raw(db, STATE_PREFIX + key, value)
+
+
+async def migrate(db: AsyncSession) -> None:
+    """Разовые изменения настроек при обновлении версии."""
+    # Latency Lab стал основным источником — включаем его один раз и у тех,
+    # кто уже сохранял список источников.
+    if not await get_state(db, "migrated_latencylab"):
+        row = await db.get(Setting, "enabled_checkers")
+        if row:
+            current = json.loads(row.value) or []
+            if "latencylab" not in current:
+                row.value = json.dumps(["latencylab", *current])
+        await set_state(db, "migrated_latencylab", True)
+        await db.commit()

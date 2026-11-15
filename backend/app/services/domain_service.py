@@ -117,17 +117,29 @@ async def switch_ip(db: AsyncSession, domain: Domain, new_ip: str, *, manual: bo
                  domain=domain.name, ip=new_ip, emoji="🔁")
 
 
-def next_available_ip(domain: Domain, current_ip: str | None) -> str | None:
-    """Следующий чистый IP по порядку после текущего (по кругу)."""
+async def _find_candidate(
+    db: AsyncSession, domain: Domain, current_ip: str | None, cache: IPCheckCache
+) -> str | None:
+    """Следующий доступный IP по порядку после текущего (по кругу).
+
+    Каждый кандидат проверяется прямо сейчас (результат кэшируется на цикл),
+    поэтому запросы тратятся только тогда, когда действительно нужно переключаться.
+    """
     ips = sorted(domain.ips, key=lambda e: e.position)
     if not ips:
         return None
     idx = next((i for i, e in enumerate(ips) if e.ip == current_ip), -1)
     n = len(ips)
     for step in range(1, n + 1):
-        e = ips[(idx + step) % n]
-        if e.ip != current_ip and e.is_blocked is False:
-            return e.ip
+        entry = ips[(idx + step) % n]
+        if entry.ip == current_ip:
+            continue
+        res = await cache.get(entry.ip, domain.check_port)
+        await _report_checker_errors(db, res)
+        await _apply_result(db, domain, entry, res)
+        await db.commit()
+        if res.blocked is False:
+            return entry.ip
     return None
 
 
@@ -285,29 +297,35 @@ async def process_domain(db: AsyncSession, domain: Domain, cache: IPCheckCache, 
             await db.commit()
             await db.refresh(domain)
 
-        # 2. проверка всех IP из пула (+ текущего, если его нет в пуле)
-        for entry in sorted(domain.ips, key=lambda e: e.position):
-            res = await cache.get(entry.ip, domain.check_port)
-            await _report_checker_errors(db, res)
-            await _apply_result(db, domain, entry, res)
-        await db.commit()
-
+        # 2. Проверяем только текущий IP (тот, что в A-записи) — экономим запросы к чекерам.
+        #    Резервные IP проверяются, только когда нужно на что-то переключиться
+        #    (или всегда, если включено «Проверять резервные IP по расписанию»).
         current_entry = next((e for e in domain.ips if e.ip == domain.current_ip), None)
-        if current_entry is not None:
-            current_blocked = current_entry.is_blocked
-            current_error = current_entry.last_error
-        elif domain.current_ip:
+        current_blocked, current_error = None, None
+        if domain.current_ip:
             res = await cache.get(domain.current_ip, domain.check_port)
+            await _report_checker_errors(db, res)
+            if current_entry is not None:
+                await _apply_result(db, domain, current_entry, res)
             current_blocked, current_error = res.blocked, "; ".join(res.errors)
-        else:
-            current_blocked, current_error = None, None
+
+        if cache.options.get("check_reserve_ips"):
+            for entry in sorted(domain.ips, key=lambda e: e.position):
+                if entry.ip == domain.current_ip:
+                    continue
+                res = await cache.get(entry.ip, domain.check_port)
+                await _report_checker_errors(db, res)
+                await _apply_result(db, domain, entry, res)
+        await db.commit()
 
         auto = domain.auto_switch and global_auto
 
         # 3. решение
         if not domain.current_ip:
-            candidate = next_available_ip(domain, None)
-            if candidate and auto and integrations.cloudflare_configured():
+            candidate = None
+            if auto and integrations.cloudflare_configured():
+                candidate = await _find_candidate(db, domain, None, cache)
+            if candidate:
                 await _safe_switch(db, domain, candidate, "у домена не было A-записи")
             else:
                 await _set_status(db, domain, DomainStatus.NO_RECORD, "Нет A-записи в Cloudflare")
@@ -317,7 +335,7 @@ async def process_domain(db: AsyncSession, domain: Domain, cache: IPCheckCache, 
             if not auto:
                 await _set_status(db, domain, DomainStatus.BLOCKED, "Текущий IP в бане, автосмена выключена")
                 return
-            candidate = next_available_ip(domain, domain.current_ip)
+            candidate = await _find_candidate(db, domain, domain.current_ip, cache)
             if candidate:
                 await _safe_switch(db, domain, candidate, f"{domain.current_ip} в бане")
             else:
@@ -325,8 +343,8 @@ async def process_domain(db: AsyncSession, domain: Domain, cache: IPCheckCache, 
                     domain.no_ips_alerted = True
                     await record(
                         db, "no_available_ips", "Нет доступных IP",
-                        f"{domain.name}: текущий {domain.current_ip} в бане, все IP из списка тоже в бане "
-                        f"или не проверены. Добавьте новые IP.",
+                        f"{domain.name}: текущий {domain.current_ip} в бане, резервные IP тоже в бане "
+                        f"или их не удалось проверить. Добавьте новые IP.",
                         level="error", domain=domain.name, emoji="🆘",
                     )
                 await _set_status(db, domain, DomainStatus.NO_IPS, "Все IP из списка в бане")
@@ -336,6 +354,22 @@ async def process_domain(db: AsyncSession, domain: Domain, cache: IPCheckCache, 
             await _set_status(db, domain, DomainStatus.OK, msg)
         else:
             await _set_status(db, domain, DomainStatus.ERROR, f"Не удалось проверить IP: {current_error or '—'}")
+
+
+async def check_single_ip(db: AsyncSession, domain: Domain, ip: str) -> None:
+    """Ручная проверка одного IP из списка домена (кнопка во фронте)."""
+    entry = next((e for e in domain.ips if e.ip == ip), None)
+    if entry is None:
+        raise ValueError("IP нет в списке домена")
+    cfg = await settings_service.get_all(db)
+    cache = IPCheckCache(cfg)
+    async with domain_lock(domain.id):
+        res = await cache.get(ip, domain.check_port)
+        await _report_checker_errors(db, res)
+        await _apply_result(db, domain, entry, res)
+        if ip == domain.current_ip and res.blocked is not None:
+            domain.last_checked_at = utcnow()
+        await db.commit()
 
 
 async def _process_ip_entry(db: AsyncSession, domain: Domain, cache: IPCheckCache) -> None:

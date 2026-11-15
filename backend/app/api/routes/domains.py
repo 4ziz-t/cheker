@@ -165,6 +165,18 @@ async def switch_domain_ip(domain_id: int, data: SwitchIn, db: AsyncSession = De
     return _out(d, await _nodes_by_address(db))
 
 
+@router.post("/{domain_id}/ips/check", response_model=DomainOut)
+async def check_one_ip(domain_id: int, data: SwitchIn, db: AsyncSession = Depends(get_db)):
+    """Проверить один IP из списка (например, резервный) — тратит 1 запрос к чекерам."""
+    d = await _get(db, domain_id)
+    try:
+        await domain_service.check_single_ip(db, d, data.ip)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    d = await db.get(Domain, domain_id, populate_existing=True)
+    return _out(d, await _nodes_by_address(db))
+
+
 @router.post("/{domain_id}/check", response_model=DomainOut)
 async def check_domain(domain_id: int, db: AsyncSession = Depends(get_db)):
     d = await _get(db, domain_id)

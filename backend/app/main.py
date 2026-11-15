@@ -8,6 +8,7 @@ from app.core import integrations
 from app.core.config import get_settings
 from app.core.database import SessionLocal, init_db
 from app.core.http import close_http
+from app.services import settings_service
 from app.services.scheduler import scheduler
 
 settings = get_settings()
@@ -20,6 +21,7 @@ async def lifespan(_: FastAPI):
     await init_db()
     async with SessionLocal() as db:
         await integrations.load(db)
+        await settings_service.migrate(db)
     for name, ok in (("Remnawave", integrations.remnawave_configured()),
                      ("Cloudflare", integrations.cloudflare_configured()),
                      ("Telegram", integrations.telegram_configured())):

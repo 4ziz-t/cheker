@@ -29,6 +29,8 @@ FIELDS: list[Field] = [
     Field("cloudflare_api_token", "API Token", "cloudflare", hint="Права: Zone:Read + DNS:Edit"),
     Field("telegram_bot_token", "Токен бота", "telegram", hint="Выдаёт @BotFather"),
     Field("telegram_chat_id", "Chat ID", "telegram", secret=False, hint="Ваш id, можно узнать у @userinfobot"),
+    Field("latencylab_token", "API-ключ (ll_…)", "latencylab",
+          hint="latencylab.ru → Профиль (вход через Telegram) → API-ключ"),
     Field("cheburcheck_token", "API-токен", "cheburcheck", hint="Нужен для проверки ТСПУ (пробы)"),
     Field("geopinger_token", "API-токен", "geopinger", hint="geopinger.net → Профиль → API"),
 ]
@@ -38,6 +40,7 @@ GROUPS = {
     "remnawave": "Remnawave",
     "cloudflare": "Cloudflare",
     "telegram": "Telegram",
+    "latencylab": "Latency Lab",
     "cheburcheck": "Cheburcheck",
     "geopinger": "GeoPinger",
 }

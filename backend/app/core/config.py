@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     cheburcheck_url: str = "https://cheburcheck.ru/api/v1"
     cheburcheck_token: str = ""          # API-токен для динамической проверки (/probe)
     cheburcheck_probe_timeout: float = 120.0
+    latencylab_url: str = "https://console.latencylab.ru"
+    latencylab_token: str = ""
     geopinger_url: str = "https://geopinger.net/api/v1"
     geopinger_token: str = ""
 

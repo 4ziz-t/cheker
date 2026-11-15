@@ -192,6 +192,10 @@ class SettingsUpdate(BaseModel):
     notify: dict[str, bool] | None = None
     events_retention_days: int | None = Field(None, ge=1, le=3650)
     auto_import_nodes: bool | None = None
+    check_reserve_ips: bool | None = None
+    latencylab_operators: list[str] | None = None
+    latencylab_fail_percent: int | None = Field(None, ge=1, le=100)
+    latencylab_skip_whitelist: bool | None = None
     tcp_check_port: int | None = Field(None, ge=1, le=65535)
     geopinger_places: list[str] | None = None
     geopinger_control_places: list[str] | None = None

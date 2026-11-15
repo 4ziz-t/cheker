@@ -103,6 +103,7 @@ export default function DomainDetail() {
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState(null);
   const [port, setPort] = useState(null);
+  const [checkingIp, setCheckingIp] = useState('');
 
   if (loading && !domain) {
     return (
@@ -250,6 +251,18 @@ export default function DomainDetail() {
   const portValue = port ?? (domain.check_port ? String(domain.check_port) : '');
   const portDirty = port !== null && port !== (domain.check_port ? String(domain.check_port) : '');
 
+  const checkOne = async (ip) => {
+    setCheckingIp(ip);
+    try {
+      apply(await domainsApi.checkOneIp(domain.id, ip));
+      toast.success(`${ip} проверен`);
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setCheckingIp('');
+    }
+  };
+
   const savePort = async () => {
     const value = port.trim() === '' ? null : Number(port);
     if (value !== null && (!Number.isInteger(value) || value < 1 || value > 65535)) {
@@ -374,6 +387,12 @@ export default function DomainDetail() {
             )}
           </div>
 
+          {!isIpEntry && domain.ips.length > 1 && (
+            <p className="field__hint">
+              По расписанию проверяется только текущий IP. Резервные проверяются, когда нужно переключиться, — или
+              кнопкой ↻.
+            </p>
+          )}
           {domain.ips.length === 0 ? (
             <EmptyState title="Список пуст" text="Добавьте IP, на которые можно переключать домен" />
           ) : (
@@ -409,6 +428,16 @@ export default function DomainDetail() {
                           <span>Назначить</span>
                         </button>
                       )}
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        disabled={busy || !!checkingIp}
+                        onClick={() => checkOne(ip.ip)}
+                        aria-label="Проверить этот IP"
+                        title="Проверить этот IP сейчас (1 запрос к источникам)"
+                      >
+                        {checkingIp === ip.ip ? <Spinner size={16} /> : <IconRefresh size={18} />}
+                      </button>
                       <button
                         type="button"
                         className="icon-btn"

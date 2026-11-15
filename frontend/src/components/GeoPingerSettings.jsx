@@ -54,20 +54,6 @@ export default function GeoPingerSettings({ form, set }) {
   return (
     <div className="form">
       <label className="field">
-        <span className="field__label">Порт для TCP-проверки (по умолчанию)</span>
-        <input
-          className="input"
-          type="number"
-          min={1}
-          max={65535}
-          style={{ maxWidth: 160 }}
-          value={form.tcp_check_port ?? ''}
-          onChange={(e) => set('tcp_check_port', e.target.value === '' ? '' : Number(e.target.value))}
-        />
-        <span className="field__hint">Порт инбаунда на нодах (обычно 443). У домена можно указать свой.</span>
-      </label>
-
-      <label className="field">
         <span className="field__label">Считать IP заблокированным, если не подключились</span>
         <div className="input-suffix">
           <input
