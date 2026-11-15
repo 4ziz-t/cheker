@@ -52,7 +52,6 @@ export const settingsApi = {
   updateIntegrations: (values) => api.put('/settings/integrations', { values }),
   testIntegration: (group) => api.post(`/settings/integrations/test/${group}`),
   geopingerSensors: () => api.get('/settings/geopinger/sensors'),
-  latencylabOperators: () => api.get('/settings/latencylab/operators'),
   testTelegram: () => api.post('/settings/test-telegram'),
   testSummary: () => api.post('/settings/test-summary'),
 };

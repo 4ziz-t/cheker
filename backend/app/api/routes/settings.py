@@ -124,22 +124,6 @@ async def test_integration(group: str):
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Неизвестная интеграция")
 
 
-@router.get("/latencylab/operators")
-async def latencylab_operators():
-    """Операторы Latency Lab — для выбора, через кого проверять."""
-    from app.checkers.latencylab import OPERATOR_TITLES, LatencyLabChecker, LatencyLabError
-
-    try:
-        ops = await LatencyLabChecker(get_http()).operators()
-    except LatencyLabError as e:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
-    return [
-        {"id": o.get("id"), "label": o.get("label") or OPERATOR_TITLES.get(o.get("id"), o.get("id")),
-         "online": bool(o.get("online")), "wl": bool(o.get("wl"))}
-        for o in ops
-    ]
-
-
 @router.get("/geopinger/sensors")
 async def geopinger_sensors():
     """Города сенсоров GeoPinger — для выбора точек проверки."""
