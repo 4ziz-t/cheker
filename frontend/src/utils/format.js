@@ -116,6 +116,13 @@ export function describeCheck(name, d) {
     const bad = d.probes.filter((p) => p.verdicts.some((v) => v !== 'доступен' && v !== 'неопределённо')).length;
     parts.push(`проб: ${d.probes.length}${bad ? `, с блокировкой: ${bad}` : ''}`);
   }
+  if (d.operators_ok || d.operators_fail) {
+    const ok = d.operators_ok || [];
+    const fail = d.operators_fail || [];
+    parts.push(`порт ${d.port}: доступен у ${ok.length}/${ok.length + fail.length} операторов`);
+    if (fail.length) parts.push(`недоступен: ${fail.join(', ')}`);
+    if (d.wire_ok === false) parts.push('по проводу тоже недоступен');
+  }
   if (d.verdict) {
     parts.push(`порт ${d.port}: ${d.label || d.verdict}`);
     if (d.throttled) parts.push('замедление ТСПУ');

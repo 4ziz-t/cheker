@@ -194,6 +194,8 @@ class SettingsUpdate(BaseModel):
     auto_import_nodes: bool | None = None
     check_reserve_ips: bool | None = None
     latencylab_throttle_is_ban: bool | None = None
+    latencylab_mode: str | None = Field(None, pattern=r"^(auto|tspu|multiscan)$")
+    latencylab_fail_percent: int | None = Field(None, ge=1, le=100)
     tcp_check_port: int | None = Field(None, ge=1, le=65535)
     geopinger_places: list[str] | None = None
     geopinger_control_places: list[str] | None = None

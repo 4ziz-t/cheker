@@ -260,6 +260,11 @@ textarea.input {
   background-repeat: no-repeat;
 }
 
+.select--wide {
+  width: 100%;
+  min-width: 0;
+}
+
 .input-suffix {
   display: flex;
   align-items: center;

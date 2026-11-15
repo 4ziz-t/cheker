@@ -37,6 +37,8 @@ DEFAULTS: dict[str, Any] = {
     "auto_import_nodes": True,
     "check_reserve_ips": False,
     "latencylab_throttle_is_ban": True,
+    "latencylab_mode": "auto",
+    "latencylab_fail_percent": 50,
     "tcp_check_port": 443,
     "geopinger_places": ["Москва", "Санкт-Петербург", "Екатеринбург", "Новосибирск", "Казань"],
     "geopinger_control_places": [],
