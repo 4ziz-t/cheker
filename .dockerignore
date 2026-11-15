@@ -1,9 +1,0 @@
-.env
-data
-**/__pycache__
-**/*.pyc
-**/.venv
-frontend/node_modules
-frontend/dist
-backend/static
-.git

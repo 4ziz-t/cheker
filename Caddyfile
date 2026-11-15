@@ -10,5 +10,13 @@
 		-Server
 	}
 
-	reverse_proxy app:8000
+	# API → контейнер бекенда
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# всё остальное → контейнер фронтенда
+	handle {
+		reverse_proxy frontend:80
+	}
 }
