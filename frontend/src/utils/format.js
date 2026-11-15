@@ -102,6 +102,7 @@ export function parseIpList(text) {
 export const CHECKER_TITLES = {
   cheburcheck: 'Реестр РКН',
   cheburcheck_probe: 'ТСПУ (пробы)',
+  geopinger_tcp: 'TCP из РФ',
 };
 
 /** Человекочитаемое описание ответа одного источника проверки. */
@@ -114,6 +115,9 @@ export function describeCheck(name, d) {
     const bad = d.probes.filter((p) => p.verdicts.some((v) => v !== 'доступен' && v !== 'неопределённо')).length;
     parts.push(`проб: ${d.probes.length}${bad ? `, с блокировкой: ${bad}` : ''}`);
   }
+  if (d.ru) parts.push(`порт ${d.port}: подключились ${d.ru} узлов РФ`);
+  if (d.failed_places?.length) parts.push(`не прошло: ${d.failed_places.join(', ')}`);
+  if (d.control) parts.push(`контроль вне РФ: ${d.control}`);
   if (d.geo) parts.push(d.geo);
   if (d.blocked_subnets?.length) parts.push(`подсети: ${d.blocked_subnets.join(', ')}`);
   return `${title}: ${parts.join(' · ')}`;

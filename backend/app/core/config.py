@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # --- Часовой пояс для сводки и отображения ---
     tz: str = "Europe/Moscow"
 
+    # --- Интеграции (значения из .env — запасные: из панели их можно переопределить) ---
     # --- Remnawave ---
     remnawave_url: str = ""
     remnawave_token: str = ""
@@ -42,6 +43,8 @@ class Settings(BaseSettings):
     cheburcheck_url: str = "https://cheburcheck.ru/api/v1"
     cheburcheck_token: str = ""          # API-токен для динамической проверки (/probe)
     cheburcheck_probe_timeout: float = 120.0
+    geopinger_url: str = "https://geopinger.net/api/v1"
+    geopinger_token: str = ""
 
     # --- Прочее ---
     http_timeout: float = 20.0
@@ -53,18 +56,6 @@ class Settings(BaseSettings):
         if not re.fullmatch(r"[A-Za-z0-9]{4,6}", v or ""):
             raise ValueError("APP_PASSWORD должен состоять из 4–6 латинских букв или цифр")
         return v
-
-    @property
-    def remnawave_configured(self) -> bool:
-        return bool(self.remnawave_url and self.remnawave_token)
-
-    @property
-    def cloudflare_configured(self) -> bool:
-        return bool(self.cloudflare_api_token)
-
-    @property
-    def telegram_configured(self) -> bool:
-        return bool(self.telegram_bot_token and self.telegram_chat_id)
 
 
 @lru_cache

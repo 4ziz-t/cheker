@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import delete
 
-from app.core.config import get_settings
+from app.core import integrations
 from app.core.database import SessionLocal
 from app.core.timeutils import local_tz, utcnow
 from app.models import Event, UserSession
@@ -31,10 +31,7 @@ class Scheduler:
             asyncio.create_task(self._domains_loop(), name="domains"),
             asyncio.create_task(self._summary_loop(), name="summary"),
         ]
-        if get_settings().remnawave_configured:
-            self._tasks.append(asyncio.create_task(self._nodes_loop(), name="nodes"))
-        else:
-            log.warning("Remnawave не настроен — мониторинг нод отключён")
+        self._tasks.append(asyncio.create_task(self._nodes_loop(), name="nodes"))
 
     async def stop(self) -> None:
         for t in self._tasks:
@@ -79,7 +76,7 @@ class Scheduler:
             async with SessionLocal() as db:
                 interval = int(await settings_service.get(db, "node_poll_interval_seconds"))
             due = last_run + interval
-            if time.time() >= due:
+            if time.time() >= due and integrations.remnawave_configured():
                 try:
                     await poll_nodes()
                 except Exception:  # noqa: BLE001

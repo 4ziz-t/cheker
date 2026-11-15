@@ -1,18 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { dashboardApi, settingsApi } from '../api/index.js';
-import Badge from '../components/Badge.jsx';
 import { IconLogout, IconSend } from '../components/Icons.jsx';
 import PageHeader, { ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
 import Toggle from '../components/Toggle.jsx';
+import GeoPingerSettings from '../components/GeoPingerSettings.jsx';
+import IntegrationsPanel from '../components/IntegrationsPanel.jsx';
 import '../styles/settings.css';
 
-const INTEGRATIONS = [
-  { key: 'remnawave', label: 'Remnawave', env: 'REMNAWAVE_URL, REMNAWAVE_TOKEN' },
-  { key: 'cloudflare', label: 'Cloudflare', env: 'CLOUDFLARE_API_TOKEN' },
-  { key: 'telegram', label: 'Telegram', env: 'TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID' },
-];
 
 function NumberField({ label, hint, value, onChange, min, max, suffix }) {
   return (
@@ -121,6 +117,13 @@ export default function Settings({ onLogout }) {
         }
       />
 
+      <h2 className="section-title">Интеграции</h2>
+      <p className="field__hint section-hint">
+        Значения из панели важнее, чем из .env. Секреты не показываются целиком — чтобы заменить, введите новое значение.
+      </p>
+      <IntegrationsPanel onChanged={() => settingsApi.checkersStatus().then(setCheckerStatus).catch(() => {})} />
+
+      <h2 className="section-title">Мониторинг</h2>
       <div className="settings-grid">
         <section className="card panel">
           <h2 className="panel__title">Проверка доменов</h2>
@@ -164,6 +167,12 @@ export default function Settings({ onLogout }) {
               onChange={(v) => set('node_poll_interval_seconds', v)}
               hint="Как быстро вы узнаете, что нода упала"
             />
+            <Toggle
+              checked={form.auto_import_nodes}
+              onChange={(v) => set('auto_import_nodes', v)}
+              label="Добавлять адреса нод в «Домены»"
+              hint="Новые ноды: их домен или IP сам появится во вкладке «Домены» и начнёт проверяться"
+            />
           </div>
         </section>
 
@@ -181,6 +190,11 @@ export default function Settings({ onLogout }) {
             ))}
             <span className="field__hint">IP считается заблокированным, если его видит в бане хотя бы один источник.</span>
           </div>
+        </section>
+
+        <section className="card panel">
+          <h2 className="panel__title">GeoPinger · TCP из РФ</h2>
+          <GeoPingerSettings form={form} set={set} />
         </section>
 
         <section className="card panel">
@@ -251,25 +265,6 @@ export default function Settings({ onLogout }) {
           </div>
         </section>
 
-        <section className="card panel">
-          <h2 className="panel__title">Интеграции</h2>
-          <ul className="integrations">
-            {INTEGRATIONS.map((i) => (
-              <li key={i.key}>
-                <div>
-                  <span className="integrations__name">{i.label}</span>
-                  <span className="field__hint mono">{i.env}</span>
-                </div>
-                {status?.integrations?.[i.key] ? (
-                  <Badge tone="ok">Настроено</Badge>
-                ) : (
-                  <Badge tone="warn">Нет в .env</Badge>
-                )}
-              </li>
-            ))}
-          </ul>
-          <p className="field__hint">Токены и пароль задаются только в .env на сервере и не отображаются в панели.</p>
-        </section>
       </div>
 
       <div className={`savebar ${dirty ? 'is-visible' : ''}`}>

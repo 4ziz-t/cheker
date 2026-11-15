@@ -70,7 +70,7 @@ export default function Domains() {
         actions={
           <button type="button" className="btn btn--primary" onClick={() => setAdding(true)}>
             <IconPlus size={18} />
-            <span>Добавить домен</span>
+            <span>Добавить</span>
           </button>
         }
       />
@@ -131,6 +131,13 @@ export default function Domains() {
                   {d.enabled ? <DomainStatusBadge status={d.status} /> : <span className="muted">Выключен</span>}
                 </div>
 
+                {(d.kind === 'ip' || d.source === 'remnawave') && (
+                  <div className="domain-card__tags">
+                    {d.kind === 'ip' && <span className="tag">IP-адрес</span>}
+                    {d.source === 'remnawave' && <span className="tag tag--muted">из Remnawave</span>}
+                  </div>
+                )}
+
                 <div className="domain-card__ip">
                   <span className="muted">Текущий IP</span>
                   <span className="mono domain-card__current">{d.current_ip || '—'}</span>
@@ -150,7 +157,11 @@ export default function Domains() {
                 )}
 
                 <div className="domain-card__foot">
-                  <Toggle checked={d.auto_switch} onChange={(v) => toggleAuto(d, v)} label="Автосмена" />
+                  {d.kind === 'ip' ? (
+                    <span className="muted small">Только мониторинг</span>
+                  ) : (
+                    <Toggle checked={d.auto_switch} onChange={(v) => toggleAuto(d, v)} label="Автосмена" />
+                  )}
                   <span className="muted small">{formatRelative(d.last_checked_at)}</span>
                 </div>
               </article>

@@ -14,6 +14,14 @@ UTCDatetime = Annotated[
 DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?!-)([a-z0-9-]{1,63}(?<!-)\.)+[a-z]{2,63}$")
 
 
+def is_ipv4(value: str) -> bool:
+    try:
+        ipaddress.IPv4Address(value.strip())
+        return True
+    except ValueError:
+        return False
+
+
 def normalize_ip(value: str) -> str:
     try:
         return str(ipaddress.IPv4Address(value.strip()))
@@ -66,6 +74,9 @@ class DomainIPOut(ORM):
 class DomainOut(ORM):
     id: int
     name: str
+    kind: str
+    source: str
+    check_port: int | None
     enabled: bool
     auto_switch: bool
     notes: str
@@ -86,13 +97,19 @@ class DomainCreate(BaseModel):
     enabled: bool = True
     notes: str = ""
 
+    check_port: int | None = Field(None, ge=1, le=65535)
+
     @field_validator("name")
     @classmethod
     def _name(cls, v: str) -> str:
         v = v.strip().lower().rstrip(".")
-        if not DOMAIN_RE.match(v):
-            raise ValueError("Некорректное имя домена")
-        return v
+        for prefix in ("https://", "http://"):
+            if v.startswith(prefix):
+                v = v[len(prefix):]
+        v = v.split("/")[0]
+        if is_ipv4(v) or DOMAIN_RE.match(v):
+            return v
+        raise ValueError("Укажите домен (sub.example.com) или IPv4-адрес")
 
     @field_validator("ips")
     @classmethod
@@ -104,6 +121,8 @@ class DomainUpdate(BaseModel):
     enabled: bool | None = None
     auto_switch: bool | None = None
     notes: str | None = None
+    # null — использовать порт из общих настроек
+    check_port: int | None = Field(None, ge=1, le=65535)
 
 
 class DomainIPsUpdate(BaseModel):
@@ -172,3 +191,13 @@ class SettingsUpdate(BaseModel):
     daily_summary_time: str | None = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     notify: dict[str, bool] | None = None
     events_retention_days: int | None = Field(None, ge=1, le=3650)
+    auto_import_nodes: bool | None = None
+    tcp_check_port: int | None = Field(None, ge=1, le=65535)
+    geopinger_places: list[str] | None = None
+    geopinger_control_places: list[str] | None = None
+    geopinger_fail_percent: int | None = Field(None, ge=1, le=100)
+
+
+class IntegrationsUpdate(BaseModel):
+    """None — не менять, пустая строка — удалить значение из панели."""
+    values: dict[str, str | None]

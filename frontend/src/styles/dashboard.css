@@ -104,6 +104,10 @@
   max-width: 460px;
 }
 
+.ip-tool__port {
+  max-width: 90px;
+}
+
 .ip-tool__result {
   display: flex;
   flex-direction: column;

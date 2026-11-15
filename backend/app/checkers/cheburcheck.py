@@ -18,7 +18,7 @@ class CheburcheckChecker(BaseChecker):
     retries_on_429 = 2
     retry_delay = 10.0
 
-    async def check(self, ip: str) -> CheckResult:
+    async def check(self, ip: str, port: int | None = None) -> CheckResult:
         url = f"{get_settings().cheburcheck_url.rstrip('/')}/check"
         attempt = 0
         while True:

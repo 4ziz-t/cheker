@@ -4,11 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.checkers import all_checkers
+from app.core import integrations
 from app.core.database import get_db
 from app.core.http import get_http
 from app.integrations import telegram
-from app.schemas import SettingsUpdate
+from app.integrations.cloudflare import CloudflareClient, CloudflareError
+from app.integrations.remnawave import RemnawaveClient, RemnawaveError
+from app.schemas import IntegrationsUpdate, SettingsUpdate
 from app.services import settings_service
+from app.services.events import errors
 from app.services.scheduler import scheduler
 from app.services.summary import build_summary
 
@@ -74,3 +78,68 @@ async def test_summary(db: AsyncSession = Depends(get_db)):
     except telegram.TelegramError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
     return {"ok": True}
+
+
+# ------------------------------------------------------------ интеграции
+
+@router.get("/integrations")
+async def get_integrations():
+    return {"fields": integrations.public_view(), "groups": integrations.GROUPS}
+
+
+@router.put("/integrations")
+async def update_integrations(data: IntegrationsUpdate, db: AsyncSession = Depends(get_db)):
+    unknown = set(data.values) - set(integrations.FIELD_MAP)
+    if unknown:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Неизвестные поля: {', '.join(sorted(unknown))}")
+    url = data.values.get("remnawave_url")
+    if url and not url.strip().startswith(("http://", "https://")):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "URL панели должен начинаться с http:// или https://")
+    await integrations.update(db, data.values)
+    errors.active.clear()  # после смены токенов ошибки перепроверятся заново
+    scheduler.wake()
+    return {"fields": integrations.public_view(), "groups": integrations.GROUPS}
+
+
+@router.post("/integrations/test/{group}")
+async def test_integration(group: str):
+    try:
+        if group == "remnawave":
+            nodes = await RemnawaveClient().get_nodes()
+            return {"ok": True, "message": f"Подключено, нод в панели: {len(nodes)}"}
+        if group == "cloudflare":
+            await CloudflareClient().verify_token()
+            return {"ok": True, "message": "Токен действителен"}
+        if group == "telegram":
+            await telegram.send_message("✅ <b>Тестовое уведомление</b>\nCheker на связи.")
+            return {"ok": True, "message": "Сообщение отправлено"}
+        if group in ("cheburcheck", "geopinger"):
+            name = "cheburcheck_probe" if group == "cheburcheck" else "geopinger_tcp"
+            msg = await all_checkers()[name](get_http()).status()
+            ok = bool(msg) and not msg.startswith(("Ошибка", "Токен не задан", "Баланс: ошибка", "Не удалось"))
+            return {"ok": ok, "message": msg or "—"}
+    except (RemnawaveError, CloudflareError, telegram.TelegramError) as e:
+        return {"ok": False, "message": str(e)}
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "Неизвестная интеграция")
+
+
+@router.get("/geopinger/sensors")
+async def geopinger_sensors():
+    """Города сенсоров GeoPinger — для выбора точек проверки."""
+    from app.checkers.geopinger import GeoPingerError, GeoPingerTCPChecker
+
+    try:
+        sensors = await GeoPingerTCPChecker(get_http()).sensors()
+    except GeoPingerError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    cities: dict[str, dict] = {}
+    for s in sensors:
+        if not s.get("active"):
+            continue
+        city = s.get("city") or s.get("id")
+        c = cities.setdefault(city, {"city": city, "ccode": (s.get("ccode") or "").lower(),
+                                     "providers": [], "count": 0})
+        c["count"] += 1
+        if s.get("provider") and s["provider"] not in c["providers"]:
+            c["providers"].append(s["provider"])
+    return sorted(cities.values(), key=lambda c: (c["ccode"] != "ru", c["city"]))

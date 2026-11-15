@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
+from app.core import integrations
 from app.core.database import get_db
 from app.integrations.remnawave import RemnawaveClient, RemnawaveError
 from app.models import Domain, Node
@@ -33,8 +33,8 @@ async def list_nodes(db: AsyncSession = Depends(get_db)):
 
 @router.post("/refresh", response_model=list[NodeOut])
 async def refresh_nodes(db: AsyncSession = Depends(get_db)):
-    if not get_settings().remnawave_configured:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Remnawave не настроен в .env")
+    if not integrations.remnawave_configured():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Remnawave не настроен (Настройки → Интеграции)")
     await poll_nodes()
     return await _list(db)
 

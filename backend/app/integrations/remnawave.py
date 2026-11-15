@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from app.core.config import get_settings
+from app.core import integrations
 from app.core.http import get_http
 
 
@@ -45,21 +45,21 @@ class RemnaNode:
 
 class RemnawaveClient:
     def __init__(self, client: httpx.AsyncClient | None = None):
-        s = get_settings()
         self.client = client or get_http()
-        self.base = s.remnawave_url.rstrip("/")
+        self.base = integrations.get("remnawave_url").rstrip("/")
         self.headers = {
-            "Authorization": f"Bearer {s.remnawave_token}",
+            "Authorization": f"Bearer {integrations.get('remnawave_token')}",
             # панель отклоняет запросы по http без этих заголовков
             "X-Forwarded-Proto": "https",
             "X-Forwarded-For": "127.0.0.1",
         }
-        if s.remnawave_api_key:
-            self.headers["X-Api-Key"] = s.remnawave_api_key
+        api_key = integrations.get("remnawave_api_key")
+        if api_key:
+            self.headers["X-Api-Key"] = api_key
 
     async def _request(self, method: str, path: str) -> Any:
-        if not self.base:
-            raise RemnawaveError("REMNAWAVE_URL / REMNAWAVE_TOKEN не заданы в .env")
+        if not self.base or not integrations.get("remnawave_token"):
+            raise RemnawaveError("Remnawave не настроен: укажите URL и токен в Настройках")
         try:
             resp = await self.client.request(method, f"{self.base}{path}", headers=self.headers)
         except httpx.HTTPError as e:

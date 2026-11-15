@@ -4,10 +4,10 @@ from datetime import timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.timeutils import utcnow
 from app.integrations.telegram import esc
 from app.models import Domain, DomainIP, Event, Node
 from app.models.domain import DomainStatus
-from app.core.timeutils import utcnow
 from app.services.events import record
 
 

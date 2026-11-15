@@ -31,12 +31,14 @@ class BaseChecker(ABC):
     #: включён ли источник по умолчанию при первом запуске
     enabled_by_default: bool = False
 
-    def __init__(self, client: httpx.AsyncClient):
+    def __init__(self, client: httpx.AsyncClient, options: dict[str, Any] | None = None):
         self.client = client
+        # настройки приложения (из Настроек во фронте), если источнику они нужны
+        self.options = options or {}
 
     @abstractmethod
-    async def check(self, ip: str) -> CheckResult:
-        """Проверить один IPv4-адрес."""
+    async def check(self, ip: str, port: int | None = None) -> CheckResult:
+        """Проверить один IPv4-адрес. port — порт сервиса (для TCP-проверок)."""
 
     async def status(self) -> str | None:
         """Необязательно: короткая строка состояния для фронта (например, остаток кредитов)."""

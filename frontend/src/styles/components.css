@@ -394,6 +394,11 @@ textarea.input {
   font-weight: 550;
 }
 
+.tag--muted {
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
 /* ---------- алерты ---------- */
 .alert {
   display: flex;
@@ -411,6 +416,11 @@ textarea.input {
   background: var(--bad-soft);
   border-color: rgba(248, 81, 73, 0.3);
   color: #ffb3ae;
+}
+.alert--ok {
+  background: var(--ok-soft);
+  border-color: rgba(63, 185, 80, 0.3);
+  color: #9be3a6;
 }
 .alert--warn {
   background: var(--warn-soft);

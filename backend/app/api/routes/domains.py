@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,7 +8,14 @@ from app.core.tasks import spawn
 from app.integrations.cloudflare import CloudflareError
 from app.models import Domain, DomainIP, Node
 from app.models.domain import DomainStatus
-from app.schemas import DomainCreate, DomainIPsUpdate, DomainOut, DomainUpdate, SwitchIn
+from app.schemas import (
+    DomainCreate,
+    DomainIPsUpdate,
+    DomainOut,
+    DomainUpdate,
+    SwitchIn,
+    is_ipv4,
+)
 from app.services import domain_service
 from app.services.events import record
 
@@ -56,16 +64,30 @@ async def list_domains(db: AsyncSession = Depends(get_db)):
     return [_out(d, nodes) for d in domains]
 
 
+@router.get("/lookup")
+async def lookup(name: str = Query(..., min_length=1)):
+    """Определить текущий IP домена до добавления (Cloudflare → DNS)."""
+    try:
+        name = DomainCreate(name=name).name
+    except ValidationError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Укажите домен или IPv4-адрес") from e
+    if is_ipv4(name):
+        return {"name": name, "kind": "ip", "ip": name, "source": "ip"}
+    ip, src = await domain_service.detect_current_ip(name)
+    return {"name": name, "kind": "domain", "ip": ip, "source": src}
+
+
 @router.post("", response_model=DomainOut, status_code=201)
 async def create_domain(data: DomainCreate, db: AsyncSession = Depends(get_db)):
     if (await db.execute(select(Domain).where(Domain.name == data.name))).scalar_one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, "Такой домен уже добавлен")
-    d = Domain(name=data.name, auto_switch=data.auto_switch, enabled=data.enabled, notes=data.notes)
-    _set_ips(d, data.ips)
-    db.add(d)
-    await db.commit()
-    await db.refresh(d)
-    await record(db, "domain_changed", "Домен добавлен", f"{d.name}, IP: {len(data.ips)}",
+    d, detected, src = await domain_service.create_entry(
+        db, data.name, ips=data.ips, auto_switch=data.auto_switch, enabled=data.enabled,
+        notes=data.notes, check_port=data.check_port,
+    )
+    await domain_service.set_ignored(db, d.name, False)
+    found = f", текущий IP {detected} ({src})" if detected and d.kind == "domain" else ""
+    await record(db, "domain_changed", "Домен добавлен", f"{d.name}, IP в списке: {len(d.ips)}{found}",
                  domain=d.name, notify=False)
     if d.enabled:
         _check_in_background(d.id)
@@ -80,7 +102,11 @@ async def get_domain(domain_id: int, db: AsyncSession = Depends(get_db)):
 @router.patch("/{domain_id}", response_model=DomainOut)
 async def update_domain(domain_id: int, data: DomainUpdate, db: AsyncSession = Depends(get_db)):
     d = await _get(db, domain_id)
-    for k, v in data.model_dump(exclude_none=True).items():
+    for k, v in data.model_dump(exclude_unset=True).items():
+        if v is None and k != "check_port":
+            continue
+        if k == "auto_switch" and d.kind == "ip":
+            continue
         setattr(d, k, v)
     await db.commit()
     return _out(d, await _nodes_by_address(db))
@@ -89,6 +115,8 @@ async def update_domain(domain_id: int, data: DomainUpdate, db: AsyncSession = D
 @router.put("/{domain_id}/ips", response_model=DomainOut)
 async def update_ips(domain_id: int, data: DomainIPsUpdate, db: AsyncSession = Depends(get_db)):
     d = await _get(db, domain_id)
+    if d.kind == "ip":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Для записи-IP список адресов не редактируется")
     async with domain_service.domain_lock(d.id):
         before = [e.ip for e in d.ips]
         _set_ips(d, data.ips)
@@ -115,6 +143,8 @@ async def delete_domain(domain_id: int, db: AsyncSession = Depends(get_db)):
     name = d.name
     await db.delete(d)
     await db.commit()
+    # чтобы автоимпорт из Remnawave не добавил его снова
+    await domain_service.set_ignored(db, name, True)
     await record(db, "domain_changed", "Домен удалён", f"{name} (A-запись в Cloudflare не тронута)",
                  domain=name, notify=False)
 
@@ -122,6 +152,8 @@ async def delete_domain(domain_id: int, db: AsyncSession = Depends(get_db)):
 @router.post("/{domain_id}/switch", response_model=DomainOut)
 async def switch_domain_ip(domain_id: int, data: SwitchIn, db: AsyncSession = Depends(get_db)):
     d = await _get(db, domain_id)
+    if d.kind == "ip":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Это IP-адрес, а не домен: менять нечего")
     if data.ip == d.current_ip:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Этот IP уже назначен")
     async with domain_service.domain_lock(d.id):

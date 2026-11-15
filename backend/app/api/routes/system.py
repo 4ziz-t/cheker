@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import integrations
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.tasks import spawn
@@ -30,9 +31,9 @@ def _status() -> dict:
     s = get_settings()
     return {
         "integrations": {
-            "remnawave": s.remnawave_configured,
-            "cloudflare": s.cloudflare_configured,
-            "telegram": s.telegram_configured,
+            "remnawave": integrations.remnawave_configured(),
+            "cloudflare": integrations.cloudflare_configured(),
+            "telegram": integrations.telegram_configured(),
         },
         "active_errors": [{"key": k, "message": v} for k, v in errors.active.items()],
         "check": {
@@ -61,13 +62,15 @@ async def check_now():
 
 
 @router.get("/tools/check-ip")
-async def tool_check_ip(ip: str = Query(...), db: AsyncSession = Depends(get_db)):
+async def tool_check_ip(
+    ip: str = Query(...), port: int | None = Query(None, ge=1, le=65535), db: AsyncSession = Depends(get_db)
+):
     try:
         ip = normalize_ip(ip)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
-    checkers = await settings_service.get(db, "enabled_checkers")
-    res = await check_ip(ip, checkers)
+    cfg = await settings_service.get_all(db)
+    res = await check_ip(ip, cfg["enabled_checkers"], port or cfg["tcp_check_port"], cfg)
     return {"ip": ip, "blocked": res.blocked, "details": res.to_details(), "errors": res.errors}
 
 

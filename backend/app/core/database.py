@@ -44,3 +44,22 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_add_missing_columns)
+
+
+def _add_missing_columns(sync_conn) -> None:  # noqa: ANN001
+    """Простейшая миграция: добавляет в существующие таблицы новые колонки моделей."""
+    from sqlalchemy import inspect
+
+    insp = inspect(sync_conn)
+    for table in Base.metadata.sorted_tables:
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in existing:
+                continue
+            ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col.type.compile(sync_conn.dialect)}'
+            if col.server_default is not None:
+                ddl += f" DEFAULT '{col.server_default.arg}'"
+            elif not col.nullable:
+                ddl += " DEFAULT ''"
+            sync_conn.exec_driver_sql(ddl)

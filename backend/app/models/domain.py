@@ -1,6 +1,14 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -16,11 +24,25 @@ class DomainStatus:
     NO_RECORD = "no_record"  # нет A-записи и нечего назначить
 
 
+class DomainKind:
+    DOMAIN = "domain"  # домен в Cloudflare, A-запись можно менять
+    IP = "ip"          # голый IP (например, адрес ноды) — только мониторинг
+
+
+class DomainSource:
+    MANUAL = "manual"
+    REMNAWAVE = "remnawave"
+
+
 class Domain(Base):
     __tablename__ = "domains"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    kind: Mapped[str] = mapped_column(String(16), default=DomainKind.DOMAIN, server_default=DomainKind.DOMAIN)
+    source: Mapped[str] = mapped_column(String(16), default=DomainSource.MANUAL, server_default=DomainSource.MANUAL)
+    # порт для TCP-проверок (GeoPinger); None — глобальная настройка
+    check_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     auto_switch: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str] = mapped_column(Text, default="")

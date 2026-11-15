@@ -16,6 +16,7 @@ EVENT_TYPES: dict[str, str] = {
     "ip_switched_manual": "Ручная смена IP",
     "no_available_ips": "Нет доступных IP для домена",
     "dns_changed": "A-запись изменена вне панели",
+    "domain_imported": "Домен/IP ноды добавлен из Remnawave",
     "node_offline": "Нода offline",
     "node_online": "Нода снова online",
     "integration_error": "Ошибки API (Cloudflare, Remnawave, чекеры)",
@@ -33,6 +34,11 @@ DEFAULTS: dict[str, Any] = {
     "daily_summary_time": "10:00",
     "notify": {k: True for k in EVENT_TYPES},
     "events_retention_days": 90,
+    "auto_import_nodes": True,
+    "tcp_check_port": 443,
+    "geopinger_places": ["Москва", "Санкт-Петербург", "Екатеринбург", "Новосибирск", "Казань"],
+    "geopinger_control_places": [],
+    "geopinger_fail_percent": 50,
 }
 
 # служебное состояние (не показывается как настройка)

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from app.core.config import get_settings
+from app.core import integrations
 from app.core.http import get_http
 
 API = "https://api.cloudflare.com/client/v4"
@@ -25,11 +25,11 @@ class DnsRecord:
 class CloudflareClient:
     def __init__(self, client: httpx.AsyncClient | None = None):
         self.client = client or get_http()
-        self.token = get_settings().cloudflare_api_token
+        self.token = integrations.get("cloudflare_api_token")
 
     async def _request(self, method: str, path: str, **kwargs) -> dict:
         if not self.token:
-            raise CloudflareError("CLOUDFLARE_API_TOKEN не задан в .env")
+            raise CloudflareError("Cloudflare не настроен: укажите API Token в Настройках")
         try:
             resp = await self.client.request(
                 method, f"{API}{path}", headers={"Authorization": f"Bearer {self.token}"}, **kwargs
@@ -65,7 +65,10 @@ class CloudflareClient:
         ]
 
     async def update_a_record(self, zone_id: str, record_id: str, ip: str) -> DnsRecord:
-        data = await self._request("PATCH", f"/zones/{zone_id}/dns_records/{record_id}", json={"content": ip})
+        # proxied=False — «серое облако»: трафик идёт напрямую на IP ноды
+        data = await self._request(
+            "PATCH", f"/zones/{zone_id}/dns_records/{record_id}", json={"content": ip, "proxied": False}
+        )
         r = data["result"]
         return DnsRecord(r["id"], r["name"], r["content"], bool(r.get("proxied")), int(r.get("ttl", 1)))
 

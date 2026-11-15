@@ -102,6 +102,7 @@ export default function DomainDetail() {
   const [confirm, setConfirm] = useState(null); // {kind, ip}
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState(null);
+  const [port, setPort] = useState(null);
 
   if (loading && !domain) {
     return (
@@ -236,7 +237,7 @@ export default function DomainDetail() {
       title: 'Удалить домен',
       text: (
         <>
-          Удалить <b>{domain.name}</b> из мониторинга? Запись в Cloudflare не будет изменена.
+          Удалить <b>{domain.name}</b> из мониторинга? Запись в Cloudflare не будет изменена. Из Remnawave он заново не добавится — только вручную.
         </>
       ),
       confirmText: 'Удалить домен',
@@ -245,6 +246,18 @@ export default function DomainDetail() {
   })();
 
   const notesValue = notes ?? domain.notes;
+  const isIpEntry = domain.kind === 'ip';
+  const portValue = port ?? (domain.check_port ? String(domain.check_port) : '');
+  const portDirty = port !== null && port !== (domain.check_port ? String(domain.check_port) : '');
+
+  const savePort = async () => {
+    const value = port.trim() === '' ? null : Number(port);
+    if (value !== null && (!Number.isInteger(value) || value < 1 || value > 65535)) {
+      toast.error('Порт должен быть от 1 до 65535');
+      return;
+    }
+    if (await run(() => domainsApi.update(domain.id, { check_port: value }), 'Порт сохранён')) setPort(null);
+  };
 
   return (
     <div className="page">
@@ -278,6 +291,12 @@ export default function DomainDetail() {
 
       <div className="detail-grid">
         <section className="card panel summary">
+          {(isIpEntry || domain.source === 'remnawave') && (
+            <div className="domain-card__tags">
+              {isIpEntry && <span className="tag">IP-адрес</span>}
+              {domain.source === 'remnawave' && <span className="tag tag--muted">добавлен из Remnawave</span>}
+            </div>
+          )}
           <div className="summary__status">
             {domain.enabled ? <DomainStatusBadge status={domain.status} /> : <Badge>Мониторинг выключен</Badge>}
             {domain.status_message && <span className="muted">{domain.status_message}</span>}
@@ -308,23 +327,51 @@ export default function DomainDetail() {
               label="Мониторинг"
               hint="Проверять домен по расписанию"
             />
-            <Toggle
-              checked={domain.auto_switch}
-              disabled={busy}
-              onChange={(v) => run(() => domainsApi.update(domain.id, { auto_switch: v }), v ? 'Автосмена включена' : 'Автосмена выключена')}
-              label="Автосмена IP"
-              hint="Менять A-запись при бане"
-            />
+            {isIpEntry ? (
+              <span className="field__hint">
+                Это IP-адрес, а не домен: при бане придёт уведомление, но сменить его автоматически нельзя.
+              </span>
+            ) : (
+              <Toggle
+                checked={domain.auto_switch}
+                disabled={busy}
+                onChange={(v) => run(() => domainsApi.update(domain.id, { auto_switch: v }), v ? 'Автосмена включена' : 'Автосмена выключена')}
+                label="Автосмена IP"
+                hint="Менять A-запись при бане"
+              />
+            )}
+            <div className="field">
+              <span className="field__label">Порт для TCP-проверки</span>
+              <div className="port-field">
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  placeholder="общий"
+                  value={portValue}
+                  onChange={(e) => setPort(e.target.value)}
+                />
+                {portDirty && (
+                  <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={savePort}>
+                    Сохранить
+                  </button>
+                )}
+              </div>
+              <span className="field__hint">Пусто — порт из общих настроек (GeoPinger)</span>
+            </div>
           </div>
         </section>
 
         <section className="card panel">
           <div className="panel__head">
-            <h2 className="panel__title">IP-адреса · {domain.ips.length}</h2>
-            <button type="button" className="btn btn--sm btn--ghost" onClick={() => setBulk(true)}>
-              <IconEdit size={16} />
-              <span>Списком</span>
-            </button>
+            <h2 className="panel__title">{isIpEntry ? 'Проверка IP' : `IP-адреса · ${domain.ips.length}`}</h2>
+            {!isIpEntry && (
+              <button type="button" className="btn btn--sm btn--ghost" onClick={() => setBulk(true)}>
+                <IconEdit size={16} />
+                <span>Списком</span>
+              </button>
+            )}
           </div>
 
           {domain.ips.length === 0 ? (
@@ -349,7 +396,7 @@ export default function DomainDetail() {
                       </span>
                       <IpDetails ip={ip} />
                     </div>
-                    <div className="ip-row__actions">
+                    {!isIpEntry && <div className="ip-row__actions">
                       {!isCurrent && (
                         <button
                           type="button"
@@ -389,13 +436,14 @@ export default function DomainDetail() {
                       >
                         <IconTrash size={18} />
                       </button>
-                    </div>
+                    </div>}
                   </li>
                 );
               })}
             </ol>
           )}
 
+          {!isIpEntry && (
           <form className="add-ip" onSubmit={addIp}>
             <input
               className="input mono"
@@ -409,6 +457,7 @@ export default function DomainDetail() {
               <span>Добавить</span>
             </button>
           </form>
+          )}
         </section>
 
         <section className="card panel">

@@ -35,6 +35,7 @@ function StatCard({ label, value, total, tone, hint, to }) {
 
 function IpTool() {
   const [ip, setIp] = useState('');
+  const [port, setPort] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -49,7 +50,7 @@ function IpTool() {
     setError('');
     setResult(null);
     try {
-      setResult(await dashboardApi.checkIp(ip.trim()));
+      setResult(await dashboardApi.checkIp(ip.trim(), port.trim()));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -67,6 +68,14 @@ function IpTool() {
           value={ip}
           onChange={(e) => setIp(e.target.value)}
           inputMode="decimal"
+        />
+        <input
+          className="input mono ip-tool__port"
+          placeholder="порт"
+          value={port}
+          onChange={(e) => setPort(e.target.value.replace(/\D/g, '').slice(0, 5))}
+          inputMode="numeric"
+          title="Порт для TCP-проверки (пусто — из настроек)"
         />
         <button type="submit" className="btn btn--primary" disabled={busy}>
           {busy ? <Spinner size={16} /> : <IconSearch size={18} />}
@@ -145,7 +154,7 @@ export default function Dashboard() {
         <div className="alert alert--warn">
           <IconAlert size={18} />
           <span>
-            Не настроено в .env: {missing.map(([k]) => INTEGRATION_NAMES[k]).join(', ')}
+            Не настроено: {missing.map(([k]) => INTEGRATION_NAMES[k]).join(', ')} — укажите в «Настройки → Интеграции»
           </span>
         </div>
       )}

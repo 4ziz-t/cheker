@@ -4,6 +4,7 @@ import logging
 
 import httpx
 
+from app.core import integrations
 from app.core.config import get_settings
 from app.core.http import get_http
 
@@ -20,15 +21,15 @@ def esc(text: object) -> str:
 
 async def send_message(text: str, client: httpx.AsyncClient | None = None) -> None:
     s = get_settings()
-    if not s.telegram_configured:
-        raise TelegramError("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID не заданы в .env")
+    if not integrations.telegram_configured():
+        raise TelegramError("Telegram не настроен: укажите токен бота и chat id в Настройках")
     client = client or get_http()
-    url = f"{s.telegram_api_url.rstrip('/')}/bot{s.telegram_bot_token}/sendMessage"
+    url = f"{s.telegram_api_url.rstrip('/')}/bot{integrations.get('telegram_bot_token')}/sendMessage"
     try:
         resp = await client.post(
             url,
             json={
-                "chat_id": s.telegram_chat_id,
+                "chat_id": integrations.get("telegram_chat_id"),
                 "text": text[:4000],
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True,

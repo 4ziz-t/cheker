@@ -10,11 +10,13 @@ export const dashboardApi = {
   get: () => api.get('/dashboard'),
   status: () => api.get('/system/status'),
   checkNow: () => api.post('/system/check-now'),
-  checkIp: (ip) => api.get(`/tools/check-ip?ip=${encodeURIComponent(ip)}`),
+  checkIp: (ip, port) =>
+    api.get(`/tools/check-ip?ip=${encodeURIComponent(ip)}${port ? `&port=${encodeURIComponent(port)}` : ''}`),
 };
 
 export const domainsApi = {
   list: () => api.get('/domains'),
+  lookup: (name) => api.get(`/domains/lookup?name=${encodeURIComponent(name)}`),
   get: (id) => api.get(`/domains/${id}`),
   create: (data) => api.post('/domains', data),
   update: (id, data) => api.patch(`/domains/${id}`, data),
@@ -45,6 +47,10 @@ export const settingsApi = {
   get: () => api.get('/settings'),
   update: (data) => api.put('/settings', data),
   checkersStatus: () => api.get('/settings/checkers/status'),
+  integrations: () => api.get('/settings/integrations'),
+  updateIntegrations: (values) => api.put('/settings/integrations', { values }),
+  testIntegration: (group) => api.post(`/settings/integrations/test/${group}`),
+  geopingerSensors: () => api.get('/settings/geopinger/sensors'),
   testTelegram: () => api.post('/settings/test-telegram'),
   testSummary: () => api.post('/settings/test-summary'),
 };

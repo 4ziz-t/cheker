@@ -13,6 +13,7 @@ import httpx
 
 from app.checkers.base import BaseChecker, CheckResult
 from app.checkers.registry import register_checker
+from app.core import integrations
 from app.core.config import get_settings
 
 # вердикты проб, которые считаем блокировкой
@@ -45,11 +46,11 @@ def _error_text(resp: httpx.Response) -> str:
 class CheburcheckProbeChecker(BaseChecker):
     name = "cheburcheck_probe"
     title = "Cheburcheck · ТСПУ (пробы)"
-    description = "Динамическая проверка с узлов в РФ — ловит блокировки ТСПУ. Нужен CHEBURCHECK_TOKEN, расходует кредиты"
-    enabled_by_default = bool(get_settings().cheburcheck_token)
+    description = "Динамическая проверка с узлов в РФ — ловит блокировки ТСПУ. Нужен API-токен Cheburcheck, расходует кредиты"
+    enabled_by_default = False
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {get_settings().cheburcheck_token}"}
+        return {"Authorization": f"Bearer {integrations.get('cheburcheck_token')}"}
 
     @property
     def _base(self) -> str:
@@ -99,10 +100,10 @@ class CheburcheckProbeChecker(BaseChecker):
                     event, data_lines = None, []
         return results
 
-    async def check(self, ip: str) -> CheckResult:
+    async def check(self, ip: str, port: int | None = None) -> CheckResult:
         s = get_settings()
-        if not s.cheburcheck_token:
-            return CheckResult(self.name, None, error="CHEBURCHECK_TOKEN не задан в .env")
+        if not integrations.get("cheburcheck_token"):
+            return CheckResult(self.name, None, error="Не задан API-токен Cheburcheck (Настройки → Интеграции)")
         try:
             ctx = await self._get_context_id(ip)
             results = await asyncio.wait_for(self._read_probe(ctx), timeout=s.cheburcheck_probe_timeout + 30)
@@ -143,8 +144,8 @@ class CheburcheckProbeChecker(BaseChecker):
         return CheckResult(self.name, None, error="Все пробы вернули «неопределённо»", details=details)
 
     async def status(self) -> str | None:
-        if not get_settings().cheburcheck_token:
-            return "Токен не задан (CHEBURCHECK_TOKEN)"
+        if not integrations.get("cheburcheck_token"):
+            return "Токен не задан (Настройки → Интеграции)"
         try:
             resp = await self.client.get(f"{self._base}/credits", headers=self._headers(), timeout=10)
         except httpx.HTTPError as e:
