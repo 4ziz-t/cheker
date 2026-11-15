@@ -1,0 +1,83 @@
+"""Работа с DNS Cloudflare (API Token с правами Zone:Read + DNS:Edit)."""
+from dataclasses import dataclass
+
+import httpx
+
+from app.core.config import get_settings
+from app.core.http import get_http
+
+API = "https://api.cloudflare.com/client/v4"
+
+
+class CloudflareError(Exception):
+    pass
+
+
+@dataclass
+class DnsRecord:
+    id: str
+    name: str
+    content: str
+    proxied: bool
+    ttl: int
+
+
+class CloudflareClient:
+    def __init__(self, client: httpx.AsyncClient | None = None):
+        self.client = client or get_http()
+        self.token = get_settings().cloudflare_api_token
+
+    async def _request(self, method: str, path: str, **kwargs) -> dict:
+        if not self.token:
+            raise CloudflareError("CLOUDFLARE_API_TOKEN не задан в .env")
+        try:
+            resp = await self.client.request(
+                method, f"{API}{path}", headers={"Authorization": f"Bearer {self.token}"}, **kwargs
+            )
+        except httpx.HTTPError as e:
+            raise CloudflareError(f"Сетевая ошибка Cloudflare: {e}") from e
+        try:
+            data = resp.json()
+        except ValueError as e:
+            raise CloudflareError(f"Cloudflare вернул не JSON (HTTP {resp.status_code})") from e
+        if not data.get("success"):
+            errors = "; ".join(f"{x.get('code')}: {x.get('message')}" for x in data.get("errors", []))
+            raise CloudflareError(f"Cloudflare HTTP {resp.status_code}: {errors or 'неизвестная ошибка'}")
+        return data
+
+    async def find_zone_id(self, domain: str) -> str:
+        """Ищет зону, перебирая суффиксы: a.b.example.com → b.example.com → example.com."""
+        parts = domain.strip(".").split(".")
+        for i in range(len(parts) - 1):
+            candidate = ".".join(parts[i:])
+            data = await self._request("GET", "/zones", params={"name": candidate})
+            if data.get("result"):
+                return data["result"][0]["id"]
+        raise CloudflareError(f"Зона для {domain} не найдена в аккаунте Cloudflare (проверьте права токена)")
+
+    async def get_a_records(self, zone_id: str, name: str) -> list[DnsRecord]:
+        data = await self._request(
+            "GET", f"/zones/{zone_id}/dns_records", params={"type": "A", "name": name, "per_page": 100}
+        )
+        return [
+            DnsRecord(r["id"], r["name"], r["content"], bool(r.get("proxied")), int(r.get("ttl", 1)))
+            for r in data.get("result", [])
+        ]
+
+    async def update_a_record(self, zone_id: str, record_id: str, ip: str) -> DnsRecord:
+        data = await self._request("PATCH", f"/zones/{zone_id}/dns_records/{record_id}", json={"content": ip})
+        r = data["result"]
+        return DnsRecord(r["id"], r["name"], r["content"], bool(r.get("proxied")), int(r.get("ttl", 1)))
+
+    async def create_a_record(self, zone_id: str, name: str, ip: str) -> DnsRecord:
+        data = await self._request(
+            "POST",
+            f"/zones/{zone_id}/dns_records",
+            json={"type": "A", "name": name, "content": ip, "ttl": 60, "proxied": False},
+        )
+        r = data["result"]
+        return DnsRecord(r["id"], r["name"], r["content"], bool(r.get("proxied")), int(r.get("ttl", 1)))
+
+    async def verify_token(self) -> bool:
+        await self._request("GET", "/user/tokens/verify")
+        return True

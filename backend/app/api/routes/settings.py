@@ -1,0 +1,61 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.checkers import all_checkers
+from app.core.database import get_db
+from app.integrations import telegram
+from app.schemas import SettingsUpdate
+from app.services import settings_service
+from app.services.scheduler import scheduler
+from app.services.summary import build_summary
+
+router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+@router.get("")
+async def get_settings_(db: AsyncSession = Depends(get_db)):
+    return {
+        "values": await settings_service.get_all(db),
+        "event_types": settings_service.EVENT_TYPES,
+        "checkers": [
+            {"name": c.name, "title": c.title, "description": c.description}
+            for c in all_checkers().values()
+        ],
+    }
+
+
+@router.put("")
+async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_db)):
+    patch = data.model_dump(exclude_none=True)
+    if "enabled_checkers" in patch:
+        unknown = set(patch["enabled_checkers"]) - set(all_checkers())
+        if unknown:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Неизвестные источники: {', '.join(unknown)}")
+        if not patch["enabled_checkers"]:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нужен хотя бы один источник проверки")
+    if "notify" in patch:
+        current = await settings_service.get(db, "notify")
+        patch["notify"] = {**current, **{k: v for k, v in patch["notify"].items()
+                                         if k in settings_service.EVENT_TYPES}}
+    values = await settings_service.update(db, patch)
+    scheduler.wake()
+    return {"values": values}
+
+
+@router.post("/test-telegram")
+async def test_telegram():
+    try:
+        await telegram.send_message("✅ <b>Тестовое уведомление</b>\nCheker на связи.")
+    except telegram.TelegramError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    return {"ok": True}
+
+
+@router.post("/test-summary")
+async def test_summary(db: AsyncSession = Depends(get_db)):
+    html_text, _ = await build_summary(db)
+    try:
+        await telegram.send_message(html_text)
+    except telegram.TelegramError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    return {"ok": True}

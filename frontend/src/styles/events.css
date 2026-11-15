@@ -1,0 +1,16 @@
+.toolbar--events .search {
+  max-width: 340px;
+}
+
+@media (max-width: 860px) {
+  .toolbar--events {
+    gap: 8px;
+  }
+  .toolbar--events .search {
+    max-width: none;
+  }
+  .event__head {
+    flex-direction: column;
+    gap: 0;
+  }
+}

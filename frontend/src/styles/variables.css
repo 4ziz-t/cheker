@@ -1,0 +1,42 @@
+:root {
+  color-scheme: dark;
+
+  /* поверхности */
+  --bg: #0b0f14;
+  --bg-elev: #10161d;
+  --surface: #131a22;
+  --surface-2: #19222c;
+  --surface-3: #212c38;
+  --border: #222d39;
+  --border-strong: #2f3d4c;
+
+  /* текст */
+  --text: #e6edf3;
+  --text-2: #b4c0cc;
+  --muted: #7d8b99;
+
+  /* акцент и статусы */
+  --accent: #2dd4bf;
+  --accent-strong: #14b8a6;
+  --accent-soft: rgba(45, 212, 191, 0.12);
+  --ok: #3fb950;
+  --ok-soft: rgba(63, 185, 80, 0.14);
+  --bad: #f85149;
+  --bad-soft: rgba(248, 81, 73, 0.14);
+  --warn: #e3b341;
+  --warn-soft: rgba(227, 179, 65, 0.14);
+  --info: #58a6ff;
+  --info-soft: rgba(88, 166, 255, 0.14);
+
+  /* типографика */
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* размеры */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --sidebar-w: 232px;
+  --tabbar-h: 62px;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}

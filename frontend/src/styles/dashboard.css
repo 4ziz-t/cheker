@@ -1,0 +1,152 @@
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+}
+
+.stat__label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.stat__value {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.stat__value--ok {
+  color: var(--ok);
+}
+.stat__value--bad {
+  color: var(--bad);
+}
+.stat__value--warn {
+  color: var(--warn);
+}
+.stat__value--accent {
+  color: var(--accent);
+}
+
+.stat__total {
+  font-size: 18px;
+  color: var(--muted);
+  font-weight: 500;
+  margin-left: 2px;
+}
+
+.stat__hint {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.attention {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.attention__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.attention__item:last-child {
+  border-bottom: none;
+}
+.attention__item .badge {
+  min-width: 112px;
+  justify-content: flex-start;
+}
+
+.attention__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.attention__name {
+  font-weight: 550;
+  word-break: break-all;
+}
+.attention__name:hover {
+  color: var(--accent);
+}
+
+.attention__meta {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ip-tool {
+  display: flex;
+  gap: 8px;
+  max-width: 460px;
+}
+
+.ip-tool__result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+
+.ip-tool__source {
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+
+@media (max-width: 1100px) {
+  .stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .stats {
+    gap: 10px;
+  }
+  .stat {
+    padding: 12px 14px;
+  }
+  .stat__value {
+    font-size: 26px;
+  }
+  .attention__item {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .attention__item .badge {
+    min-width: 0;
+  }
+  .ip-tool {
+    max-width: none;
+  }
+}

@@ -1,0 +1,300 @@
+"""Логика доменов: синхронизация A-записи, проверка пула IP, автосмена."""
+import asyncio
+import json
+import logging
+import time
+from collections import defaultdict
+from dataclasses import dataclass
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.checkers import all_checkers
+from app.core.config import get_settings
+from app.core.database import SessionLocal
+from app.core.timeutils import utcnow
+from app.integrations.cloudflare import CloudflareClient, CloudflareError
+from app.models import Domain, DomainIP
+from app.models.domain import DomainStatus
+from app.services import settings_service
+from app.services.events import errors, record
+from app.services.ip_check import AggregatedResult, IPCheckCache
+
+log = logging.getLogger(__name__)
+
+_domain_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+_cycle_lock = asyncio.Lock()
+
+
+class DnsConflictError(Exception):
+    pass
+
+
+@dataclass
+class CycleState:
+    running: bool = False
+    last_started_at: float | None = None
+    last_finished_at: float | None = None
+    last_duration: float | None = None
+    checked_domains: int = 0
+
+
+cycle_state = CycleState()
+
+
+def domain_lock(domain_id: int) -> asyncio.Lock:
+    return _domain_locks[domain_id]
+
+
+# ---------------------------------------------------------------- DNS
+
+async def sync_dns(db: AsyncSession, domain: Domain) -> None:
+    """Читает A-запись из Cloudflare и обновляет current_ip."""
+    cf = CloudflareClient()
+    if not domain.cf_zone_id:
+        domain.cf_zone_id = await cf.find_zone_id(domain.name)
+    records = await cf.get_a_records(domain.cf_zone_id, domain.name)
+    if len(records) > 1:
+        ips = ", ".join(r.content for r in records)
+        raise DnsConflictError(f"У домена {len(records)} A-записи ({ips}), должна быть одна")
+
+    new_ip = records[0].content if records else None
+    domain.cf_record_id = records[0].id if records else None
+    old_ip = domain.current_ip
+    domain.current_ip = new_ip
+    if old_ip and new_ip != old_ip:
+        await record(
+            db, "dns_changed", "A-запись изменена вне панели",
+            f"{domain.name}: {old_ip} → {new_ip or 'запись удалена'}",
+            level="warning", domain=domain.name, ip=new_ip, emoji="✏️",
+        )
+
+
+async def switch_ip(db: AsyncSession, domain: Domain, new_ip: str, *, manual: bool, reason: str = "") -> None:
+    """Меняет A-запись в Cloudflare. Бросает CloudflareError при ошибке."""
+    cf = CloudflareClient()
+    if not domain.cf_zone_id:
+        domain.cf_zone_id = await cf.find_zone_id(domain.name)
+
+    if domain.cf_record_id:
+        try:
+            await cf.update_a_record(domain.cf_zone_id, domain.cf_record_id, new_ip)
+        except CloudflareError:
+            domain.cf_record_id = None  # запись могли удалить — попробуем найти заново
+
+    if not domain.cf_record_id:
+        records = await cf.get_a_records(domain.cf_zone_id, domain.name)
+        if len(records) > 1:
+            raise DnsConflictError(f"У домена {len(records)} A-записи, должна быть одна")
+        if records:
+            rec = await cf.update_a_record(domain.cf_zone_id, records[0].id, new_ip)
+        else:
+            rec = await cf.create_a_record(domain.cf_zone_id, domain.name, new_ip)
+        domain.cf_record_id = rec.id
+
+    old_ip = domain.current_ip
+    domain.current_ip = new_ip
+    domain.last_switch_at = utcnow()
+
+    entry = next((e for e in domain.ips if e.ip == new_ip), None)
+    if entry is None or entry.is_blocked is None:
+        domain.status, domain.status_message = DomainStatus.UNKNOWN, "IP ещё не проверен"
+    elif entry.is_blocked:
+        domain.status, domain.status_message = DomainStatus.BLOCKED, "Назначен IP, который числится в бане"
+    else:
+        domain.status, domain.status_message = DomainStatus.OK, ""
+        domain.no_ips_alerted = False
+    await db.commit()
+
+    kind = "ip_switched_manual" if manual else "ip_switched_auto"
+    title = "Ручная смена IP" if manual else "IP заменён автоматически"
+    msg = f"{domain.name}: {old_ip or '—'} → {new_ip}"
+    if reason:
+        msg += f"\nПричина: {reason}"
+    await record(db, kind, title, msg, level="success" if not manual else "info",
+                 domain=domain.name, ip=new_ip, emoji="🔁")
+
+
+def next_available_ip(domain: Domain, current_ip: str | None) -> str | None:
+    """Следующий чистый IP по порядку после текущего (по кругу)."""
+    ips = sorted(domain.ips, key=lambda e: e.position)
+    if not ips:
+        return None
+    idx = next((i for i, e in enumerate(ips) if e.ip == current_ip), -1)
+    n = len(ips)
+    for step in range(1, n + 1):
+        e = ips[(idx + step) % n]
+        if e.ip != current_ip and e.is_blocked is False:
+            return e.ip
+    return None
+
+
+# ---------------------------------------------------------------- проверка
+
+async def _report_checker_errors(db: AsyncSession, res: AggregatedResult) -> None:
+    registry = all_checkers()
+    for r in res.results:
+        cls = registry.get(r.checker)
+        title = f"источник {cls.title if cls else r.checker}"
+        if r.error:
+            await errors.report(db, f"checker:{r.checker}", title, r.error)
+        else:
+            await errors.resolve(db, f"checker:{r.checker}", title)
+
+
+async def _apply_result(db: AsyncSession, domain: Domain, entry: DomainIP, res: AggregatedResult) -> None:
+    now = utcnow()
+    entry.last_checked_at = now
+    entry.details = json.dumps(res.to_details(), ensure_ascii=False)
+    entry.last_error = "; ".join(res.errors) or None
+    if res.blocked is None:
+        return
+
+    prev = entry.is_blocked
+    entry.is_blocked = res.blocked
+    is_current = entry.ip == domain.current_ip
+    role = "текущий IP домена" if is_current else "резервный IP"
+
+    if res.blocked and prev is not True:
+        entry.blocked_since = now
+        await record(
+            db, "ip_blocked", "IP в бане",
+            f"{entry.ip} — {domain.name} ({role})",
+            level="error" if is_current else "warning", domain=domain.name, ip=entry.ip, emoji="⛔",
+        )
+    elif not res.blocked and prev is True:
+        entry.blocked_since = None
+        await record(
+            db, "ip_unblocked", "IP разбанен",
+            f"{entry.ip} — {domain.name} ({role})",
+            level="success", domain=domain.name, ip=entry.ip, emoji="🟢",
+        )
+
+
+async def _set_status(db: AsyncSession, domain: Domain, status: str, message: str = "") -> None:
+    domain.status, domain.status_message = status, message
+    await db.commit()
+
+
+async def process_domain(db: AsyncSession, domain: Domain, cache: IPCheckCache, global_auto: bool) -> None:
+    s = get_settings()
+    async with domain_lock(domain.id):
+        # список IP могли изменить из панели, пока шёл цикл
+        await db.refresh(domain)
+        domain.last_checked_at = utcnow()
+
+        # 1. актуальная A-запись
+        if s.cloudflare_configured:
+            try:
+                await sync_dns(db, domain)
+                await errors.resolve(db, "cloudflare", "Cloudflare")
+            except DnsConflictError as e:
+                if domain.status_message != str(e):
+                    await record(db, "integration_error", "Конфликт DNS", f"{domain.name}: {e}",
+                                 level="error", domain=domain.name)
+                await _set_status(db, domain, DomainStatus.ERROR, str(e))
+                return
+            except CloudflareError as e:
+                domain.cf_zone_id = None
+                await errors.report(db, "cloudflare", "Cloudflare", str(e))
+                await _set_status(db, domain, DomainStatus.ERROR, f"Cloudflare: {e}")
+                return
+
+        # 2. проверка всех IP из пула (+ текущего, если его нет в пуле)
+        for entry in sorted(domain.ips, key=lambda e: e.position):
+            res = await cache.get(entry.ip)
+            await _report_checker_errors(db, res)
+            await _apply_result(db, domain, entry, res)
+        await db.commit()
+
+        current_entry = next((e for e in domain.ips if e.ip == domain.current_ip), None)
+        if current_entry is not None:
+            current_blocked = current_entry.is_blocked
+            current_error = current_entry.last_error
+        elif domain.current_ip:
+            res = await cache.get(domain.current_ip)
+            current_blocked, current_error = res.blocked, "; ".join(res.errors)
+        else:
+            current_blocked, current_error = None, None
+
+        auto = domain.auto_switch and global_auto
+
+        # 3. решение
+        if not domain.current_ip:
+            candidate = next_available_ip(domain, None)
+            if candidate and auto and s.cloudflare_configured:
+                await _safe_switch(db, domain, candidate, "у домена не было A-записи")
+            else:
+                await _set_status(db, domain, DomainStatus.NO_RECORD, "Нет A-записи в Cloudflare")
+            return
+
+        if current_blocked is True:
+            if not auto:
+                await _set_status(db, domain, DomainStatus.BLOCKED, "Текущий IP в бане, автосмена выключена")
+                return
+            candidate = next_available_ip(domain, domain.current_ip)
+            if candidate:
+                await _safe_switch(db, domain, candidate, f"{domain.current_ip} в бане")
+            else:
+                if not domain.no_ips_alerted:
+                    domain.no_ips_alerted = True
+                    await record(
+                        db, "no_available_ips", "Нет доступных IP",
+                        f"{domain.name}: текущий {domain.current_ip} в бане, все IP из списка тоже в бане "
+                        f"или не проверены. Добавьте новые IP.",
+                        level="error", domain=domain.name, emoji="🆘",
+                    )
+                await _set_status(db, domain, DomainStatus.NO_IPS, "Все IP из списка в бане")
+        elif current_blocked is False:
+            domain.no_ips_alerted = False
+            msg = "" if current_entry else "Текущий IP не из списка домена"
+            await _set_status(db, domain, DomainStatus.OK, msg)
+        else:
+            await _set_status(db, domain, DomainStatus.ERROR, f"Не удалось проверить IP: {current_error or '—'}")
+
+
+async def _safe_switch(db: AsyncSession, domain: Domain, ip: str, reason: str) -> None:
+    try:
+        await switch_ip(db, domain, ip, manual=False, reason=reason)
+        await errors.resolve(db, "cloudflare", "Cloudflare")
+    except (CloudflareError, DnsConflictError) as e:
+        await errors.report(db, "cloudflare", "Cloudflare", f"Не удалось сменить IP {domain.name}: {e}")
+        await _set_status(db, domain, DomainStatus.ERROR, f"Не удалось сменить IP: {e}")
+
+
+# ---------------------------------------------------------------- цикл
+
+async def run_cycle(domain_ids: list[int] | None = None) -> bool:
+    """Полная проверка доменов. Возвращает False, если цикл уже идёт."""
+    if domain_ids is None and _cycle_lock.locked():
+        return False
+    async with _cycle_lock:
+        cycle_state.running = True
+        cycle_state.last_started_at = time.time()
+        count = 0
+        try:
+            async with SessionLocal() as db:
+                cfg = await settings_service.get_all(db)
+                cache = IPCheckCache(cfg["enabled_checkers"], cfg["checker_delay_ms"])
+                q = select(Domain).where(Domain.enabled.is_(True)).order_by(Domain.name)
+                if domain_ids is not None:
+                    q = select(Domain).where(Domain.id.in_(domain_ids))
+                domains = (await db.execute(q)).scalars().all()
+                for d in domains:
+                    try:
+                        await process_domain(db, d, cache, cfg["auto_switch_enabled"])
+                        count += 1
+                    except Exception as e:  # noqa: BLE001
+                        log.exception("Ошибка проверки домена %s", d.name)
+                        await db.rollback()
+                        await record(db, "integration_error", "Ошибка проверки домена",
+                                     f"{d.name}: {e}", level="error", domain=d.name)
+                if domain_ids is None:
+                    await settings_service.set_state(db, "last_check_at", utcnow().isoformat())
+                    await db.commit()
+        finally:
+            cycle_state.running = False
+            cycle_state.last_finished_at = time.time()
+            cycle_state.last_duration = cycle_state.last_finished_at - (cycle_state.last_started_at or 0)
+            cycle_state.checked_domains = count
+    return True

@@ -1,0 +1,281 @@
+/* ---------- список доменов ---------- */
+.domain-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.domain-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  transition: border-color 0.15s;
+}
+.domain-card:hover {
+  border-color: var(--border-strong);
+}
+.domain-card.is-off {
+  opacity: 0.6;
+}
+
+.domain-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.domain-card__name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 14.5px;
+  word-break: break-all;
+}
+.domain-card__name:hover {
+  color: var(--accent);
+}
+
+.domain-card__ip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+}
+
+.domain-card__current {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.domain-card__pool {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.domain-card__msg {
+  font-size: 13px;
+}
+
+.domain-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 12px;
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+}
+
+.ip-dots {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ip-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--surface-3);
+}
+.ip-dot--ok {
+  background: var(--ok);
+}
+.ip-dot--bad {
+  background: var(--bad);
+}
+.ip-dot--warn {
+  background: var(--warn);
+}
+.ip-dot.is-current {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+/* ---------- страница домена ---------- */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.detail-grid > .panel:nth-child(3),
+.detail-grid > .panel:nth-child(4) {
+  grid-column: span 1;
+}
+
+.summary {
+  grid-row: span 2;
+}
+
+.summary__status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13.5px;
+}
+
+.summary__ip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+
+.summary__ip-value {
+  font-size: 26px;
+  font-weight: 650;
+  color: var(--accent);
+  word-break: break-all;
+}
+
+.summary__meta {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.summary__meta div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13.5px;
+}
+.summary__meta dt {
+  color: var(--muted);
+}
+.summary__meta dd {
+  margin: 0;
+  text-align: right;
+}
+
+.summary__toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.ip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ip-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+.ip-row.is-current {
+  border-color: rgba(45, 212, 191, 0.45);
+  background: linear-gradient(90deg, var(--accent-soft), var(--bg-elev) 60%);
+}
+
+.ip-row__pos {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ip-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ip-row__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ip-row__ip {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ip-row__details {
+  display: flex;
+  flex-direction: column;
+  font-size: 12.5px;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.ip-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.ip-row__actions .btn {
+  margin-right: 6px;
+}
+
+.add-ip {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 1100px) {
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .summary {
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 860px) {
+  .domain-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .ip-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .ip-row__main {
+    flex-basis: calc(100% - 40px);
+  }
+  .ip-row__actions {
+    width: 100%;
+    justify-content: flex-end;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border);
+  }
+  .ip-row__actions .btn {
+    margin-right: auto;
+  }
+  .summary__ip-value {
+    font-size: 22px;
+  }
+}
