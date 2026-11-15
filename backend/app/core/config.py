@@ -40,6 +40,8 @@ class Settings(BaseSettings):
 
     # --- Чекеры ---
     cheburcheck_url: str = "https://cheburcheck.ru/api/v1"
+    cheburcheck_token: str = ""          # API-токен для динамической проверки (/probe)
+    cheburcheck_probe_timeout: float = 120.0
 
     # --- Прочее ---
     http_timeout: float = 20.0

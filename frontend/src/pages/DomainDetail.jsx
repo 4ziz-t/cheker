@@ -19,20 +19,12 @@ import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
 import Toggle from '../components/Toggle.jsx';
 import usePolling from '../hooks/usePolling.js';
-import { formatDateTime, formatRelative, ipState, isIPv4, parseIpList } from '../utils/format.js';
+import { describeCheck, formatDateTime, formatRelative, ipState, isIPv4, parseIpList } from '../utils/format.js';
 import '../styles/domains.css';
 
 function IpDetails({ ip }) {
   const details = ip.details || {};
-  const lines = Object.entries(details)
-    .map(([name, d]) => {
-      const parts = [];
-      if (d.geo) parts.push(d.geo);
-      if (d.blocked_subnets?.length) parts.push(`подсети: ${d.blocked_subnets.join(', ')}`);
-      if (d.error) parts.push(`ошибка: ${d.error}`);
-      return parts.length ? `${name}: ${parts.join(' · ')}` : null;
-    })
-    .filter(Boolean);
+  const lines = Object.entries(details).map(([name, d]) => describeCheck(name, d));
   if (!lines.length) return null;
   return (
     <div className="ip-row__details">

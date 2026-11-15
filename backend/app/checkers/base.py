@@ -37,3 +37,7 @@ class BaseChecker(ABC):
     @abstractmethod
     async def check(self, ip: str) -> CheckResult:
         """Проверить один IPv4-адрес."""
+
+    async def status(self) -> str | None:
+        """Необязательно: короткая строка состояния для фронта (например, остаток кредитов)."""
+        return None

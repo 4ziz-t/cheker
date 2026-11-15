@@ -44,6 +44,7 @@ export const eventsApi = {
 export const settingsApi = {
   get: () => api.get('/settings'),
   update: (data) => api.put('/settings', data),
+  checkersStatus: () => api.get('/settings/checkers/status'),
   testTelegram: () => api.post('/settings/test-telegram'),
   testSummary: () => api.post('/settings/test-summary'),
 };

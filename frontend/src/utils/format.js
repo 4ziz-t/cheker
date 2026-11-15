@@ -98,3 +98,23 @@ export function parseIpList(text) {
   });
   return { valid, invalid };
 }
+
+export const CHECKER_TITLES = {
+  cheburcheck: 'Реестр РКН',
+  cheburcheck_probe: 'ТСПУ (пробы)',
+};
+
+/** Человекочитаемое описание ответа одного источника проверки. */
+export function describeCheck(name, d) {
+  const title = CHECKER_TITLES[name] || name;
+  if (d.error) return `${title}: ошибка — ${d.error}`;
+  const parts = [d.blocked ? 'в бане' : 'чисто'];
+  if (d.verdicts?.length) parts.push(d.verdicts.join(', '));
+  if (d.probes?.length) {
+    const bad = d.probes.filter((p) => p.verdicts.some((v) => v !== 'доступен' && v !== 'неопределённо')).length;
+    parts.push(`проб: ${d.probes.length}${bad ? `, с блокировкой: ${bad}` : ''}`);
+  }
+  if (d.geo) parts.push(d.geo);
+  if (d.blocked_subnets?.length) parts.push(`подсети: ${d.blocked_subnets.join(', ')}`);
+  return `${title}: ${parts.join(' · ')}`;
+}

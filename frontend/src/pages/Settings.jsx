@@ -43,6 +43,7 @@ export default function Settings({ onLogout }) {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState('');
+  const [checkerStatus, setCheckerStatus] = useState({});
 
   const load = async () => {
     try {
@@ -59,6 +60,7 @@ export default function Settings({ onLogout }) {
 
   useEffect(() => {
     load();
+    settingsApi.checkersStatus().then(setCheckerStatus).catch(() => {});
   }, []);
 
   const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(saved), [form, saved]);
@@ -174,7 +176,7 @@ export default function Settings({ onLogout }) {
                 checked={form.enabled_checkers.includes(c.name)}
                 onChange={(v) => toggleChecker(c.name, v)}
                 label={c.title}
-                hint={c.description}
+                hint={checkerStatus[c.name] ? `${c.description}. ${checkerStatus[c.name]}` : c.description}
               />
             ))}
             <span className="field__hint">IP считается заблокированным, если его видит в бане хотя бы один источник.</span>

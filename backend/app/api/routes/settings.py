@@ -1,8 +1,11 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.checkers import all_checkers
 from app.core.database import get_db
+from app.core.http import get_http
 from app.integrations import telegram
 from app.schemas import SettingsUpdate
 from app.services import settings_service
@@ -40,6 +43,18 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
     values = await settings_service.update(db, patch)
     scheduler.wake()
     return {"values": values}
+
+
+@router.get("/checkers/status")
+async def checkers_status():
+    """Состояние источников (например, остаток кредитов cheburcheck)."""
+    result: dict[str, str | None] = {}
+    for name, cls in all_checkers().items():
+        try:
+            result[name] = await asyncio.wait_for(cls(get_http()).status(), timeout=15)
+        except Exception as e:  # noqa: BLE001
+            result[name] = f"Ошибка: {e.__class__.__name__}"
+    return result
 
 
 @router.post("/test-telegram")

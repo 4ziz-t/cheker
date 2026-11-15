@@ -8,7 +8,7 @@ import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
 import usePolling from '../hooks/usePolling.js';
-import { formatDuration, formatRelative, isIPv4 } from '../utils/format.js';
+import { describeCheck, formatDuration, formatRelative, isIPv4 } from '../utils/format.js';
 import '../styles/dashboard.css';
 
 const INTEGRATION_NAMES = { remnawave: 'Remnawave', cloudflare: 'Cloudflare', telegram: 'Telegram' };
@@ -82,9 +82,7 @@ function IpTool() {
           {result.blocked === null && <Badge tone="warn">Не удалось проверить</Badge>}
           {Object.entries(result.details).map(([name, d]) => (
             <div key={name} className="ip-tool__source">
-              <b>{name}</b>: {d.error ? d.error : d.blocked ? 'заблокирован' : 'чисто'}
-              {d.geo ? ` · ${d.geo}` : ''}
-              {d.blocked_subnets?.length ? ` · подсети: ${d.blocked_subnets.join(', ')}` : ''}
+              {describeCheck(name, d)}
             </div>
           ))}
         </div>
