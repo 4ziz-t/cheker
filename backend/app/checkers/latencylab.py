@@ -1,15 +1,18 @@
-"""Источник: Latency Lab — проверка бана ТСПУ.
+"""Источник: Latency Lab — единственный источник проверки IP.
 
-Основной метод — POST /api/lab/tspu. Если API-ключу он не разрешён (HTTP 403 «вне scope»),
-источник автоматически переходит на POST /api/lab/multiscan с tcp_port: TCP до IP:порт через
-мобильных операторов РФ (МТС, Мегафон, Билайн, T2…). Режим можно зафиксировать в настройках.
+Смотрим на результат «с провода» (wire) — проверку из проводной сети РФ:
+если по проводу IP недоступен — считаем, что IP заблокирован.
 
-Запрос: {"target": "1.2.3.4"} (+ "port", если он не 443).
-Ответ: result.result = {blocked, throttled, working, verdict, label, reach, ...}.
-Проверка идёт «с провода» в РФ: шлётся >16 КБ вверх и смотрится, не рвёт ли ТСПУ соединение.
+Порядок:
+  1. POST /api/lab/tspu {"target": ip} — если метод разрешён API-ключу.
+     Источник там wire: blocked=true или working=false → бан.
+     При HTTP 403 (метод вне scope ключа) переходим к п.2 и пробуем /tspu снова через 6 часов.
+  2. POST /api/lab/multiscan {"text": ip, "tcp_port": port, "async": true} → поле wire_ok.
+     wire_ok=false → бан, wire_ok=true → чисто.
+     Если wire_ok не пришёл — запасной вариант: доля операторов, у которых порт недоступен.
 
-Нужен personal API key (ll_…) из профиля latencylab.ru. 1 IP = 1 запрос из суточного лимита.
-Одновременно у аккаунта может быть только одна задача — запросы идут строго по очереди.
+Нужен personal API key (ll_…). 1 IP = 1 запрос из суточного лимита.
+Одновременно у аккаунта одна задача — запросы идут строго по очереди.
 """
 import asyncio
 import time
@@ -24,9 +27,12 @@ from app.core.config import get_settings
 
 POLL_INTERVAL = 3.0
 JOB_TIMEOUT = 180.0
+TSPU_RETRY_AFTER = 6 * 3600
 
-# у аккаунта одна активная задача — сериализуем все обращения
-_lock = asyncio.Lock()
+OPERATOR_TITLES = {"mts": "МТС", "megafon": "Мегафон", "beeline": "Билайн", "t2": "T2", "tmobile": "Т-Мобайл"}
+
+_lock = asyncio.Lock()            # у аккаунта одна активная задача
+_tspu_forbidden_until = 0.0       # /tspu не разрешён ключу — не дёргаем его до этого момента
 
 
 class LatencyLabError(Exception):
@@ -41,20 +47,13 @@ class LatencyLabForbidden(LatencyLabError):
     pass
 
 
-OPERATOR_TITLES = {"mts": "МТС", "megafon": "Мегафон", "beeline": "Билайн", "t2": "T2", "tmobile": "Т-Мобайл"}
-
-# если /tspu запрещён для ключа — не долбим его каждый раз, а перепроверяем раз в 6 часов
-TSPU_RETRY_AFTER = 6 * 3600
-_tspu_forbidden_until = 0.0
-
-
 @register_checker
 class LatencyLabChecker(BaseChecker):
     name = "latencylab"
-    title = "Latency Lab · бан ТСПУ"
+    title = "Latency Lab"
     description = (
-        "Основной источник: проверка бана ТСПУ «с провода» в РФ (обрыв после 16 КБ, замедление). "
-        "Нужен API-ключ Latency Lab, 1 IP = 1 запрос из суточного лимита"
+        "Проверка IP «с провода» в РФ: если по проводу IP недоступен — он заблокирован. "
+        "1 проверка = 1 запрос из суточного лимита ключа"
     )
     enabled_by_default = True
 
@@ -85,7 +84,6 @@ class LatencyLabChecker(BaseChecker):
         return data
 
     async def _start(self, path: str, payload: dict[str, Any], deadline: float) -> dict[str, Any]:
-        """Старт задачи; если у аккаунта уже идёт задача — ждём."""
         while True:
             try:
                 return await self._request("POST", path, json=payload)
@@ -95,7 +93,6 @@ class LatencyLabChecker(BaseChecker):
                 await asyncio.sleep(5)
 
     async def _wait(self, data: dict[str, Any], deadline: float) -> dict[str, Any]:
-        """Если сервер ответил pending — опрашиваем задачу до done."""
         if data.get("status") != "pending":
             return data
         req_id = data.get("req_id")
@@ -113,106 +110,79 @@ class LatencyLabChecker(BaseChecker):
         raise LatencyLabError("Результат не получен вовремя")
 
     # ------------------------------------------------------------ /tspu
-    async def _run_tspu(self, ip: str, port: int) -> dict[str, Any]:
+    async def _via_tspu(self, ip: str, port: int) -> CheckResult:
         deadline = time.monotonic() + JOB_TIMEOUT
         payload: dict[str, Any] = {"target": ip}
         if port != 443:
             payload["port"] = port
-        try:
-            data = await self._start("/api/lab/tspu", payload, deadline)
-        except LatencyLabForbidden:
-            raise
-        except LatencyLabError as e:
-            # вдруг API не принимает port — повторяем без него
-            if "port" in payload and "HTTP 400" in str(e):
-                data = await self._start("/api/lab/tspu", {"target": ip}, deadline)
-            else:
-                raise
-        data = await self._wait(data, deadline)
+        data = await self._wait(await self._start("/api/lab/tspu", payload, deadline), deadline)
         outer = data.get("result") or {}
-        # результат лежит в result.result; на всякий случай поддерживаем и плоский вариант
-        inner = outer.get("result") if isinstance(outer.get("result"), dict) else outer
-        inner.setdefault("_source", outer.get("source"))
-        inner.setdefault("_port", outer.get("port"))
-        return inner
+        r = outer.get("result") if isinstance(outer.get("result"), dict) else outer
 
-    def _tspu_result(self, r: dict[str, Any], port: int) -> CheckResult:
-        throttle_is_ban = bool(self.options.get("latencylab_throttle_is_ban", True))
-        details: dict[str, Any] = {
-            "mode": "tspu",
-            "port": r.get("_port") or port,
+        bad = r.get("blocked") is True or r.get("working") is False
+        details = {
+            "method": "tspu",
+            "port": outer.get("port") or port,
+            "wire_ok": not bad,
             "verdict": r.get("verdict"),
             "label": r.get("label"),
-            "note": r.get("note"),
-            "source": r.get("_source") or r.get("operator"),
-            "throttled": r.get("throttled"),
         }
-        blocked, working = r.get("blocked"), r.get("working")
-        if blocked is True or (throttle_is_ban and r.get("throttled") is True):
+        if bad:
             return CheckResult(self.name, True, details=details)
-        if blocked is False and working is not False:
+        if r.get("blocked") is False:
             return CheckResult(self.name, False, details=details)
-        if working is False:
-            return CheckResult(self.name, None, details=details,
-                               error=f"IP не отвечает: {r.get('label') or r.get('verdict') or 'сервер недоступен'}")
         return CheckResult(self.name, None, details=details, error="Latency Lab не вернул вердикт")
 
-    # ------------------------------------------------------------ /multiscan (запасной режим)
-    async def _run_multiscan(self, ip: str, port: int) -> CheckResult:
+    # ------------------------------------------------------------ /multiscan
+    async def _via_multiscan(self, ip: str, port: int) -> CheckResult:
         deadline = time.monotonic() + JOB_TIMEOUT
-        ops = (await self._request("GET", "/api/lab/operators")).get("result") or {}
-        rows = ops.get("operators") or []
-        # операторы в режиме белых списков дают ложные «баны» — пропускаем
-        ids = [o["id"] for o in rows if o.get("online") and not o.get("wl")]
-        if not ids:
-            return CheckResult(self.name, None, error="Нет онлайн-операторов (без белых списков)")
         data = await self._start(
-            "/api/lab/multiscan", {"text": ip, "tcp_port": port, "operators": ids, "async": True}, deadline
+            "/api/lab/multiscan", {"text": ip, "tcp_port": port, "async": True}, deadline
         )
         result = (await self._wait(data, deadline)).get("result") or {}
+        wire_ok = result.get("wire_ok")
 
         ok_ops, fail_ops = [], []
         for row in result.get("results") or []:
             state = row.get("tcp_ok") if isinstance(row.get("tcp_ok"), bool) else row.get("ok")
-            if not isinstance(state, bool):
-                continue
-            label = OPERATOR_TITLES.get(row.get("operator"), row.get("operator", "?"))
-            (ok_ops if state else fail_ops).append(label)
+            if isinstance(state, bool):
+                label = OPERATOR_TITLES.get(row.get("operator"), row.get("operator", "?"))
+                (ok_ops if state else fail_ops).append(label)
 
-        total = len(ok_ops) + len(fail_ops)
-        wire_ok = result.get("wire_ok")
-        details = {"mode": "multiscan", "port": port, "operators_ok": ok_ops,
-                   "operators_fail": fail_ops, "wire_ok": wire_ok}
-        if total == 0:
-            return CheckResult(self.name, None, error="Операторы не вернули результат", details=details)
-        fail_ratio = float(self.options.get("latencylab_fail_percent", 50)) / 100
-        if len(fail_ops) / total >= fail_ratio:
-            if wire_ok is False and not ok_ops:
-                return CheckResult(self.name, None, details=details,
-                                   error=f"Порт {port} недоступен и по проводу — похоже, сервер лежит")
+        details: dict[str, Any] = {
+            "method": "multiscan",
+            "port": port,
+            "wire_ok": wire_ok,
+            "operators_ok": ok_ops,
+            "operators_fail": fail_ops,
+        }
+        if wire_ok is False:
             return CheckResult(self.name, True, details=details)
-        return CheckResult(self.name, False, details=details)
+        if wire_ok is True:
+            return CheckResult(self.name, False, details=details)
+
+        # wire не пришёл — запасной вариант по операторам
+        total = len(ok_ops) + len(fail_ops)
+        if not total:
+            return CheckResult(self.name, None, details=details, error="Нет данных wire и операторов")
+        details["fallback"] = "operators"
+        fail_ratio = float(self.options.get("latencylab_fail_percent", 50)) / 100
+        return CheckResult(self.name, len(fail_ops) / total >= fail_ratio, details=details)
 
     async def check(self, ip: str, port: int | None = None) -> CheckResult:
         global _tspu_forbidden_until
         if not integrations.get("latencylab_token"):
             return CheckResult(self.name, None, error="Не задан API-ключ Latency Lab (Настройки → Интеграции)")
-
         port = int(port or self.options.get("tcp_check_port") or 443)
-        mode = self.options.get("latencylab_mode", "auto")
-        use_tspu = mode == "tspu" or (mode == "auto" and time.monotonic() >= _tspu_forbidden_until)
 
         async with _lock:
             try:
-                if use_tspu:
+                if time.monotonic() >= _tspu_forbidden_until:
                     try:
-                        return self._tspu_result(await self._run_tspu(ip, port), port)
-                    except LatencyLabForbidden as e:
-                        if mode == "tspu":
-                            return CheckResult(self.name, None,
-                                               error=f"Метод /tspu недоступен для API-ключа: {e}")
+                        return await self._via_tspu(ip, port)
+                    except LatencyLabForbidden:
                         _tspu_forbidden_until = time.monotonic() + TSPU_RETRY_AFTER
-                return await self._run_multiscan(ip, port)
+                return await self._via_multiscan(ip, port)
             except LatencyLabError as e:
                 return CheckResult(self.name, None, error=str(e))
 
@@ -226,5 +196,5 @@ class LatencyLabChecker(BaseChecker):
         window = stats.get("window") or {}
         text = f"Запросов за сутки: {window.get('used', '?')}/{window.get('limit', '?')}"
         if time.monotonic() < _tspu_forbidden_until:
-            text += ". Метод /tspu не разрешён для ключа — работает запасной режим (TCP через операторов)"
+            text += ". Метод /tspu не разрешён ключу — используется /multiscan (wire)"
         return text

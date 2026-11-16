@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom';
 import { dashboardApi } from '../api/index.js';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
 import EventItem from '../components/EventItem.jsx';
+import InvestigationList from '../components/InvestigationList.jsx';
+import { ConfirmModal } from '../components/Modal.jsx';
 import { IconAlert, IconRefresh, IconSearch } from '../components/Icons.jsx';
 import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
 import usePolling from '../hooks/usePolling.js';
-import { describeCheck, formatDuration, formatRelative, isIPv4 } from '../utils/format.js';
+import { describeCheck, formatDuration, isIPv4 } from '../utils/format.js';
 import '../styles/dashboard.css';
 
 const INTEGRATION_NAMES = { remnawave: 'Remnawave', cloudflare: 'Cloudflare', telegram: 'Telegram' };
@@ -104,8 +106,10 @@ export default function Dashboard() {
   const toast = useToast();
   const { data, error, loading, reload } = usePolling(dashboardApi.get, 15000);
   const [starting, setStarting] = useState(false);
+  const [confirmAll, setConfirmAll] = useState(false);
 
   const checkNow = async () => {
+    setConfirmAll(false);
     setStarting(true);
     try {
       await dashboardApi.checkNow();
@@ -135,15 +139,19 @@ export default function Dashboard() {
       <PageHeader
         title="Дашборд"
         subtitle={
-          st &&
-          (running
-            ? 'Идёт проверка доменов…'
-            : `Последняя проверка: ${formatRelative(st.check.last_finished_at)} · следующая: ${formatRelative(st.check.next_at)}`)
+          running
+            ? 'Идёт проверка всех доменов…'
+            : 'IP доменов проверяются через Latency Lab, когда у ноды падает скорость'
         }
         actions={
-          <button type="button" className="btn btn--primary" onClick={checkNow} disabled={starting || running}>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => setConfirmAll(true)}
+            disabled={starting || running}
+          >
             {running || starting ? <Spinner size={16} /> : <IconRefresh size={18} />}
-            <span>Проверить сейчас</span>
+            <span>Проверить все домены</span>
           </button>
         }
       />
@@ -259,8 +267,31 @@ export default function Dashboard() {
             </section>
           </div>
 
+          <section className="card panel">
+            <div className="panel__head">
+              <h2 className="panel__title">Проверки после падения скорости</h2>
+            </div>
+            {data.investigations.length === 0 ? (
+              <EmptyState
+                title="Проверок пока не было"
+                text="Как только у ноды упадёт скорость, здесь появится проверка IP её домена"
+              />
+            ) : (
+              <InvestigationList items={data.investigations} onChanged={reload} />
+            )}
+          </section>
+
           <IpTool />
         </>
+      )}
+      {confirmAll && (
+        <ConfirmModal
+          title="Проверить все домены"
+          text="Будет проверен текущий IP каждого включённого домена — по 1 запросу Latency Lab на домен. При бане IP сменится сразу, без трёх проверок."
+          confirmText="Проверить"
+          onConfirm={checkNow}
+          onClose={() => setConfirmAll(false)}
+        />
       )}
     </div>
   );

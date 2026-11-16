@@ -31,8 +31,6 @@ FIELDS: list[Field] = [
     Field("telegram_chat_id", "Chat ID", "telegram", secret=False, hint="Ваш id, можно узнать у @userinfobot"),
     Field("latencylab_token", "API-ключ (ll_…)", "latencylab",
           hint="latencylab.ru → Профиль (вход через Telegram) → API-ключ"),
-    Field("cheburcheck_token", "API-токен", "cheburcheck", hint="Нужен для проверки ТСПУ (пробы)"),
-    Field("geopinger_token", "API-токен", "geopinger", hint="geopinger.net → Профиль → API"),
 ]
 FIELD_MAP = {f.key: f for f in FIELDS}
 
@@ -41,8 +39,6 @@ GROUPS = {
     "cloudflare": "Cloudflare",
     "telegram": "Telegram",
     "latencylab": "Latency Lab",
-    "cheburcheck": "Cheburcheck",
-    "geopinger": "GeoPinger",
 }
 
 DB_PREFIX = "integration."

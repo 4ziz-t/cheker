@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { domainsApi, eventsApi } from '../api/index.js';
+import { domainsApi, eventsApi, investigationsApi } from '../api/index.js';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
 import EventItem from '../components/EventItem.jsx';
+import InvestigationList from '../components/InvestigationList.jsx';
 import {
   IconArrowLeft,
   IconDown,
@@ -95,6 +96,10 @@ export default function DomainDetail() {
     [domain?.name],
   );
   const { data: events, reload: reloadEvents } = usePolling(loadEvents, 30000, [domain?.name]);
+
+  const loadInvestigations = useCallback(() => investigationsApi.list({ domain_id: id, limit: 5 }), [id]);
+  const { data: investigations, reload: reloadInvestigations } = usePolling(loadInvestigations, 20000, [id]);
+  const [startingInv, setStartingInv] = useState(false);
 
   const [checking, setChecking] = useState(false);
   const [newIp, setNewIp] = useState('');
@@ -251,6 +256,19 @@ export default function DomainDetail() {
   const portValue = port ?? (domain.check_port ? String(domain.check_port) : '');
   const portDirty = port !== null && port !== (domain.check_port ? String(domain.check_port) : '');
 
+  const startInvestigation = async () => {
+    setStartingInv(true);
+    try {
+      await investigationsApi.start(domain.id);
+      toast.success('Проверка запущена');
+      reloadInvestigations();
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setStartingInv(false);
+    }
+  };
+
   const checkOne = async (ip) => {
     setCheckingIp(ip);
     try {
@@ -354,7 +372,7 @@ export default function DomainDetail() {
               />
             )}
             <div className="field">
-              <span className="field__label">Порт для TCP-проверки</span>
+              <span className="field__label">Порт для проверки в Latency Lab</span>
               <div className="port-field">
                 <input
                   className="input"
@@ -371,7 +389,7 @@ export default function DomainDetail() {
                   </button>
                 )}
               </div>
-              <span className="field__hint">Пусто — порт из общих настроек (GeoPinger)</span>
+              <span className="field__hint">Пусто — порт из общих настроек (Настройки → Источники)</span>
             </div>
           </div>
         </section>
@@ -389,8 +407,8 @@ export default function DomainDetail() {
 
           {!isIpEntry && domain.ips.length > 1 && (
             <p className="field__hint">
-              По расписанию проверяется только текущий IP. Резервные проверяются, когда нужно переключиться, — или
-              кнопкой ↻.
+              Резервные IP проверяются, только когда нужно переключиться (или кнопкой ↻). Каждая проверка — 1 запрос
+              Latency Lab.
             </p>
           )}
           {domain.ips.length === 0 ? (
@@ -486,6 +504,41 @@ export default function DomainDetail() {
               <span>Добавить</span>
             </button>
           </form>
+          )}
+        </section>
+
+        <section className="card panel">
+          <div className="panel__head">
+            <h2 className="panel__title">Проверка после падения скорости</h2>
+            <button
+              type="button"
+              className="btn btn--sm btn--ghost"
+              disabled={startingInv || investigations?.some((i) => i.status === 'active')}
+              onClick={startInvestigation}
+              title="Проверить IP несколько раз с интервалом, как при падении скорости ноды"
+            >
+              {startingInv ? <Spinner size={14} /> : <IconRefresh size={16} />}
+              <span>Запустить</span>
+            </button>
+          </div>
+          {!investigations?.length ? (
+            <EmptyState
+              title="Проверок не было"
+              text={
+                domain.nodes.length
+                  ? 'Запустится сама, когда у ноды упадёт скорость'
+                  : 'К домену не привязана нода — автоматически не проверяется'
+              }
+            />
+          ) : (
+            <InvestigationList
+              items={investigations}
+              showDomain={false}
+              onChanged={() => {
+                reloadInvestigations();
+                reload();
+              }}
+            />
           )}
         </section>
 

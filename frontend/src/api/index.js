@@ -51,7 +51,18 @@ export const settingsApi = {
   integrations: () => api.get('/settings/integrations'),
   updateIntegrations: (values) => api.put('/settings/integrations', { values }),
   testIntegration: (group) => api.post(`/settings/integrations/test/${group}`),
-  geopingerSensors: () => api.get('/settings/geopinger/sensors'),
   testTelegram: () => api.post('/settings/test-telegram'),
   testSummary: () => api.post('/settings/test-summary'),
+};
+
+export const investigationsApi = {
+  list: (params = {}) => {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') q.set(k, v);
+    });
+    return api.get(`/investigations?${q.toString()}`);
+  },
+  start: (domainId) => api.post(`/domains/${domainId}/investigate`),
+  cancel: (id) => api.post(`/investigations/${id}/cancel`),
 };

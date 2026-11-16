@@ -101,37 +101,38 @@ export function parseIpList(text) {
 
 export const CHECKER_TITLES = {
   latencylab: 'Latency Lab',
-  cheburcheck: 'Реестр РКН',
-  cheburcheck_probe: 'ТСПУ (пробы)',
-  geopinger_tcp: 'TCP из РФ',
 };
 
-/** Человекочитаемое описание ответа одного источника проверки. */
+export const INVESTIGATION_STATUS = {
+  active: { label: 'Идёт проверка', tone: 'warn' },
+  banned: { label: 'IP в бане', tone: 'bad' },
+  not_banned: { label: 'IP не в бане', tone: 'ok' },
+  failed: { label: 'Не удалось', tone: 'muted' },
+  cancelled: { label: 'Отменена', tone: 'muted' },
+};
+
+/** байт/с → «12.3 Мбит/с» */
+export function formatSpeed(bps) {
+  if (bps === null || bps === undefined) return '—';
+  const mbit = (bps * 8) / 1_000_000;
+  return `${mbit >= 100 ? mbit.toFixed(0) : mbit.toFixed(1)} Мбит/с`;
+}
+
+/** Человекочитаемое описание ответа источника проверки. */
 export function describeCheck(name, d) {
   const title = CHECKER_TITLES[name] || name;
-  if (d.error) return `${title}: ошибка — ${d.error}`;
-  const parts = [d.blocked ? 'в бане' : 'чисто'];
-  if (d.verdicts?.length) parts.push(d.verdicts.join(', '));
-  if (d.probes?.length) {
-    const bad = d.probes.filter((p) => p.verdicts.some((v) => v !== 'доступен' && v !== 'неопределённо')).length;
-    parts.push(`проб: ${d.probes.length}${bad ? `, с блокировкой: ${bad}` : ''}`);
-  }
+  const parts = [];
+  if (d.wire_ok === false) parts.push('по проводу недоступен');
+  else if (d.wire_ok === true) parts.push('по проводу доступен');
+  if (d.label) parts.push(d.label);
+  if (d.fallback === 'operators') parts.push('wire не пришёл — оценка по операторам');
   if (d.operators_ok || d.operators_fail) {
     const ok = d.operators_ok || [];
     const fail = d.operators_fail || [];
-    parts.push(`порт ${d.port}: доступен у ${ok.length}/${ok.length + fail.length} операторов`);
-    if (fail.length) parts.push(`недоступен: ${fail.join(', ')}`);
-    if (d.wire_ok === false) parts.push('по проводу тоже недоступен');
+    if (ok.length + fail.length) parts.push(`операторы: ${ok.length}/${ok.length + fail.length} доступен`);
   }
-  if (d.verdict) {
-    parts.push(`порт ${d.port}: ${d.label || d.verdict}`);
-    if (d.throttled) parts.push('замедление ТСПУ');
-    if (d.note) parts.push(d.note);
-  }
-  if (d.ru) parts.push(`порт ${d.port}: подключились ${d.ru} узлов РФ`);
-  if (d.failed_places?.length) parts.push(`не прошло: ${d.failed_places.join(', ')}`);
-  if (d.control) parts.push(`контроль вне РФ: ${d.control}`);
-  if (d.geo) parts.push(d.geo);
-  if (d.blocked_subnets?.length) parts.push(`подсети: ${d.blocked_subnets.join(', ')}`);
-  return `${title}: ${parts.join(' · ')}`;
+  if (d.port) parts.push(`порт ${d.port}`);
+  if (d.method) parts.push(`метод /${d.method}`);
+  if (d.error) return `${title}: ошибка — ${d.error}`;
+  return `${title}: ${parts.join(' · ') || (d.blocked ? 'в бане' : 'чисто')}`;
 }

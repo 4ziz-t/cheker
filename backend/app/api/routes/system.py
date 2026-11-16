@@ -9,8 +9,8 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.tasks import spawn
 from app.core.timeutils import utcnow
-from app.models import Domain, DomainIP, Event, Node
-from app.schemas import EventOut, normalize_ip
+from app.models import Domain, DomainIP, Event, Investigation, Node
+from app.schemas import EventOut, InvestigationOut, normalize_ip
 from app.services import settings_service
 from app.services.domain_service import cycle_state, run_cycle
 from app.services.events import errors
@@ -41,7 +41,6 @@ def _status() -> dict:
             "last_started_at": _ts(cycle_state.last_started_at),
             "last_finished_at": _ts(cycle_state.last_finished_at),
             "last_duration": cycle_state.last_duration,
-            "next_at": _ts(scheduler.next_domain_check),
         },
         "nodes_next_poll_at": _ts(scheduler.next_node_poll),
         "timezone": s.tz,
@@ -97,6 +96,9 @@ async def dashboard(db: AsyncSession = Depends(get_db)):
         select(Event.type, func.count()).where(Event.created_at >= since).group_by(Event.type)
     )).all())
     recent = (await db.execute(select(Event).order_by(Event.id.desc()).limit(12))).scalars().all()
+    investigations = (await db.execute(
+        select(Investigation).order_by(Investigation.id.desc()).limit(8)
+    )).scalars().all()
 
     status_counts: dict[str, int] = {}
     for d in enabled:
@@ -137,5 +139,6 @@ async def dashboard(db: AsyncSession = Depends(get_db)):
             "node_offline": day_counts.get("node_offline", 0),
         },
         "recent_events": [EventOut.model_validate(e).model_dump(mode="json") for e in recent],
+        "investigations": [InvestigationOut.model_validate(i).model_dump(mode="json") for i in investigations],
         "status": _status(),
     }

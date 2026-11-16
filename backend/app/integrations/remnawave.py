@@ -12,6 +12,17 @@ class RemnawaveError(Exception):
     pass
 
 
+def _to_int(v: Any) -> int | None:
+    try:
+        return int(float(v)) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+# эндпоинты «скорости в реальном времени» в разных версиях панели
+REALTIME_PATHS = ("/api/bandwidth-stats/nodes/realtime", "/api/nodes/usage/realtime")
+
+
 @dataclass
 class RemnaNode:
     uuid: str
@@ -25,6 +36,7 @@ class RemnaNode:
     users_online: int | None
     xray_version: str | None
     last_status_message: str | None
+    traffic_used_bytes: int | None = None
 
     @classmethod
     def from_api(cls, d: dict[str, Any]) -> "RemnaNode":
@@ -40,6 +52,7 @@ class RemnaNode:
             users_online=d.get("usersOnline"),
             xray_version=d.get("xrayVersion"),
             last_status_message=d.get("lastStatusMessage"),
+            traffic_used_bytes=_to_int(d.get("trafficUsedBytes")),
         )
 
 
@@ -91,3 +104,30 @@ class RemnawaveClient:
 
     async def disable_node(self, uuid: str) -> None:
         await self._request("POST", f"/api/nodes/{uuid}/actions/disable")
+
+    async def get_realtime_speeds(self) -> dict[str, int] | None:
+        """Скорость нод (байт/с) из realtime-статистики панели.
+
+        Возвращает {uuid: bytes_per_sec} или None, если ни один эндпоинт не поддерживается
+        (тогда скорость считается по приросту trafficUsedBytes).
+        """
+        for path in REALTIME_PATHS:
+            try:
+                data = await self._request("GET", path)
+            except RemnawaveError:
+                continue
+            items = data if isinstance(data, list) else (data or {}).get("nodes") or []
+            speeds: dict[str, int] = {}
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                uuid = it.get("nodeUuid") or it.get("uuid")
+                total = _to_int(it.get("totalSpeedBps"))
+                if total is None:
+                    down, up = _to_int(it.get("downloadSpeedBps")), _to_int(it.get("uploadSpeedBps"))
+                    total = (down or 0) + (up or 0) if (down is not None or up is not None) else None
+                if uuid and total is not None:
+                    speeds[uuid] = total
+            if speeds:
+                return speeds
+        return None

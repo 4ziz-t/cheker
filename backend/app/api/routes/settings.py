@@ -51,7 +51,7 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
 
 @router.get("/checkers/status")
 async def checkers_status():
-    """Состояние источников (например, остаток кредитов cheburcheck)."""
+    """Состояние источников (например, остаток лимита Latency Lab)."""
     result: dict[str, str | None] = {}
     for name, cls in all_checkers().items():
         try:
@@ -113,34 +113,10 @@ async def test_integration(group: str):
         if group == "telegram":
             await telegram.send_message("✅ <b>Тестовое уведомление</b>\nCheker на связи.")
             return {"ok": True, "message": "Сообщение отправлено"}
-        if group in ("cheburcheck", "geopinger", "latencylab"):
-            name = {"cheburcheck": "cheburcheck_probe", "geopinger": "geopinger_tcp",
-                    "latencylab": "latencylab"}[group]
-            msg = await all_checkers()[name](get_http()).status()
+        if group == "latencylab":
+            msg = await all_checkers()["latencylab"](get_http()).status()
             ok = bool(msg) and not msg.startswith(("Ошибка", "Токен не задан", "Баланс: ошибка", "Не удалось"))
             return {"ok": ok, "message": msg or "—"}
     except (RemnawaveError, CloudflareError, telegram.TelegramError) as e:
         return {"ok": False, "message": str(e)}
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Неизвестная интеграция")
-
-
-@router.get("/geopinger/sensors")
-async def geopinger_sensors():
-    """Города сенсоров GeoPinger — для выбора точек проверки."""
-    from app.checkers.geopinger import GeoPingerError, GeoPingerTCPChecker
-
-    try:
-        sensors = await GeoPingerTCPChecker(get_http()).sensors()
-    except GeoPingerError as e:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
-    cities: dict[str, dict] = {}
-    for s in sensors:
-        if not s.get("active"):
-            continue
-        city = s.get("city") or s.get("id")
-        c = cities.setdefault(city, {"city": city, "ccode": (s.get("ccode") or "").lower(),
-                                     "providers": [], "count": 0})
-        c["count"] += 1
-        if s.get("provider") and s["provider"] not in c["providers"]:
-            c["providers"].append(s["provider"])
-    return sorted(cities.values(), key=lambda c: (c["ccode"] != "ru", c["city"]))

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { dashboardApi, settingsApi } from '../api/index.js';
-import GeoPingerSettings from '../components/GeoPingerSettings.jsx';
 import { IconLogout, IconSend } from '../components/Icons.jsx';
 import IntegrationsPanel from '../components/IntegrationsPanel.jsx';
 import LatencyLabSettings from '../components/LatencyLabSettings.jsx';
@@ -22,7 +21,6 @@ const TABS = [
 // какие источники имеют свой блок настроек
 const SOURCE_SETTINGS = {
   latencylab: LatencyLabSettings,
-  geopinger_tcp: GeoPingerSettings,
 };
 
 function NumberField({ label, hint, value, onChange, min, max, suffix }) {
@@ -190,28 +188,86 @@ export default function Settings({ onLogout }) {
 
       {tab === 'checks' && (
         <div className="settings-grid">
-          <Panel title="Проверка доменов">
+          <Panel title="Падение скорости ноды">
             <div className="form">
+              <p className="field__hint">
+                IP доменов проверяются только тогда, когда у привязанной ноды Remnawave упала скорость.
+              </p>
               <NumberField
-                label="Интервал проверки"
+                label="Скорость упала на"
+                suffix="% от нормы и больше"
+                min={10}
+                max={100}
+                value={form.speed_drop_percent}
+                onChange={(v) => set('speed_drop_percent', v)}
+              />
+              <NumberField
+                label="Норма — средняя скорость за"
+                suffix="ч"
+                min={1}
+                max={48}
+                value={form.speed_baseline_hours}
+                onChange={(v) => set('speed_baseline_hours', v)}
+              />
+              <NumberField
+                label="Текущая скорость — средняя за"
                 suffix="мин"
                 min={1}
-                max={1440}
-                value={form.check_interval_minutes}
-                onChange={(v) => set('check_interval_minutes', v)}
-                hint="Как часто проверять текущие IP доменов. По умолчанию — раз в час"
+                max={60}
+                value={form.speed_window_minutes}
+                onChange={(v) => set('speed_window_minutes', v)}
               />
-              <Toggle
-                checked={form.check_reserve_ips}
-                onChange={(v) => set('check_reserve_ips', v)}
-                label="Проверять резервные IP по расписанию"
-                hint="Выключено — резервные IP проверяются только при переключении (экономит запросы)"
+              <NumberField
+                label="Падение должно держаться"
+                suffix="мин"
+                min={0}
+                max={240}
+                value={form.speed_confirm_minutes}
+                onChange={(v) => set('speed_confirm_minutes', v)}
+                hint="Защита от коротких провалов"
+              />
+              <NumberField
+                label="Не следить за нодами с нормой меньше"
+                suffix="Мбит/с"
+                min={0}
+                value={form.speed_min_baseline_mbps}
+                onChange={(v) => set('speed_min_baseline_mbps', v)}
+                hint="На почти пустых нодах скорость скачет сама по себе"
+              />
+            </div>
+          </Panel>
+
+          <Panel title="Проверка IP после падения">
+            <div className="form">
+              <NumberField
+                label="Сколько раз проверять IP"
+                min={1}
+                max={10}
+                value={form.investigation_checks}
+                onChange={(v) => set('investigation_checks', v)}
+                hint="Бан — только если IP в бане во всех проверках. Если хоть раз доступен — проверка останавливается и приходит «с нодой что-то не так»"
+              />
+              <NumberField
+                label="Интервал между проверками"
+                suffix="мин"
+                min={1}
+                max={720}
+                value={form.investigation_interval_minutes}
+                onChange={(v) => set('investigation_interval_minutes', v)}
+              />
+              <NumberField
+                label="Пауза перед новой проверкой того же домена"
+                suffix="мин"
+                min={0}
+                max={10080}
+                value={form.investigation_cooldown_minutes}
+                onChange={(v) => set('investigation_cooldown_minutes', v)}
               />
               <Toggle
                 checked={form.auto_switch_enabled}
                 onChange={(v) => set('auto_switch_enabled', v)}
                 label="Автосмена IP (глобально)"
-                hint="Выключите, чтобы временно остановить все автоматические смены"
+                hint="При подтверждённом бане менять A-запись на следующий доступный IP"
               />
             </div>
           </Panel>
@@ -225,13 +281,13 @@ export default function Settings({ onLogout }) {
                 max={3600}
                 value={form.node_poll_interval_seconds}
                 onChange={(v) => set('node_poll_interval_seconds', v)}
-                hint="Как быстро вы узнаете, что нода упала"
+                hint="Статус и скорость нод обновляются с этим интервалом"
               />
               <Toggle
                 checked={form.auto_import_nodes}
                 onChange={(v) => set('auto_import_nodes', v)}
                 label="Добавлять адреса нод в «Домены»"
-                hint="Домен или IP новой ноды сам появится во вкладке «Домены» и начнёт проверяться"
+                hint="Домен или IP новой ноды сам появится во вкладке «Домены»"
               />
             </div>
           </Panel>
@@ -266,9 +322,6 @@ export default function Settings({ onLogout }) {
                 onChange={(v) => set('checker_delay_ms', v)}
                 hint="Защита от лимитов на стороне сервисов"
               />
-              <span className="field__hint">
-                IP считается заблокированным, если его видит в бане хотя бы один включённый источник.
-              </span>
             </div>
           </Panel>
 

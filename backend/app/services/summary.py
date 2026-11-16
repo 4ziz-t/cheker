@@ -45,6 +45,8 @@ async def build_summary(db: AsyncSession) -> tuple[str, str]:
         f"   • автосмен IP: {counts.get('ip_switched_auto', 0)}",
         f"   • ручных смен: {counts.get('ip_switched_manual', 0)}",
         f"   • падений нод: {counts.get('node_offline', 0)}",
+        f"   • падений скорости: {counts.get('speed_drop', 0)}",
+        f"   • «с нодой что-то не так»: {counts.get('node_suspect', 0)}",
     ]
     plain = (
         f"Ноды {len(active_nodes) - len(offline)}/{len(active_nodes)} online, "

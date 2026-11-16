@@ -309,13 +309,6 @@ async def process_domain(db: AsyncSession, domain: Domain, cache: IPCheckCache, 
                 await _apply_result(db, domain, current_entry, res)
             current_blocked, current_error = res.blocked, "; ".join(res.errors)
 
-        if cache.options.get("check_reserve_ips"):
-            for entry in sorted(domain.ips, key=lambda e: e.position):
-                if entry.ip == domain.current_ip:
-                    continue
-                res = await cache.get(entry.ip, domain.check_port)
-                await _report_checker_errors(db, res)
-                await _apply_result(db, domain, entry, res)
         await db.commit()
 
         auto = domain.auto_switch and global_auto
@@ -332,28 +325,40 @@ async def process_domain(db: AsyncSession, domain: Domain, cache: IPCheckCache, 
             return
 
         if current_blocked is True:
-            if not auto:
-                await _set_status(db, domain, DomainStatus.BLOCKED, "Текущий IP в бане, автосмена выключена")
-                return
-            candidate = await _find_candidate(db, domain, domain.current_ip, cache)
-            if candidate:
-                await _safe_switch(db, domain, candidate, f"{domain.current_ip} в бане")
-            else:
-                if not domain.no_ips_alerted:
-                    domain.no_ips_alerted = True
-                    await record(
-                        db, "no_available_ips", "Нет доступных IP",
-                        f"{domain.name}: текущий {domain.current_ip} в бане, резервные IP тоже в бане "
-                        f"или их не удалось проверить. Добавьте новые IP.",
-                        level="error", domain=domain.name, emoji="🆘",
-                    )
-                await _set_status(db, domain, DomainStatus.NO_IPS, "Все IP из списка в бане")
+            await handle_current_banned(db, domain, cache, auto)
         elif current_blocked is False:
             domain.no_ips_alerted = False
             msg = "" if current_entry else "Текущий IP не из списка домена"
             await _set_status(db, domain, DomainStatus.OK, msg)
         else:
             await _set_status(db, domain, DomainStatus.ERROR, f"Не удалось проверить IP: {current_error or '—'}")
+
+
+async def handle_current_banned(db: AsyncSession, domain: Domain, cache: IPCheckCache, auto: bool) -> str | None:
+    """Текущий IP в бане: ищем следующий доступный и переключаем A-запись.
+
+    Возвращает новый IP или None.
+    """
+    if domain.kind == DomainKind.IP:
+        await _set_status(db, domain, DomainStatus.BLOCKED, "IP в бане. Это IP-адрес, сменить его автоматически нельзя")
+        return None
+    if not auto:
+        await _set_status(db, domain, DomainStatus.BLOCKED, "Текущий IP в бане, автосмена выключена")
+        return None
+    candidate = await _find_candidate(db, domain, domain.current_ip, cache)
+    if candidate:
+        await _safe_switch(db, domain, candidate, f"{domain.current_ip} в бане")
+        return candidate if domain.current_ip == candidate else None
+    if not domain.no_ips_alerted:
+        domain.no_ips_alerted = True
+        await record(
+            db, "no_available_ips", "Нет доступных IP",
+            f"{domain.name}: текущий {domain.current_ip} в бане, резервные IP тоже в бане "
+            f"или их не удалось проверить. Добавьте новые IP.",
+            level="error", domain=domain.name, emoji="🆘",
+        )
+    await _set_status(db, domain, DomainStatus.NO_IPS, "Все IP из списка в бане")
+    return None
 
 
 async def check_single_ip(db: AsyncSession, domain: Domain, ip: str) -> None:

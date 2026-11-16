@@ -5,12 +5,14 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.checkers import default_enabled
+from app.checkers import all_checkers, default_enabled
 from app.models import Setting
 
 # Типы событий: ключ → название (для переключателей уведомлений)
 EVENT_TYPES: dict[str, str] = {
-    "ip_blocked": "IP попал в бан",
+    "speed_drop": "Упала скорость ноды — начата проверка IP",
+    "node_suspect": "С нодой что-то не так (IP не в бане)",
+    "ip_blocked": "IP в бане",
     "ip_unblocked": "IP разбанен",
     "ip_switched_auto": "Автоматическая смена IP",
     "ip_switched_manual": "Ручная смена IP",
@@ -19,30 +21,34 @@ EVENT_TYPES: dict[str, str] = {
     "domain_imported": "Домен/IP ноды добавлен из Remnawave",
     "node_offline": "Нода offline",
     "node_online": "Нода снова online",
-    "integration_error": "Ошибки API (Cloudflare, Remnawave, чекеры)",
+    "integration_error": "Ошибки API (Cloudflare, Remnawave, Latency Lab)",
     "security": "Блокировка входа (подбор пароля)",
     "daily_summary": "Ежедневная сводка",
 }
 
 DEFAULTS: dict[str, Any] = {
-    "check_interval_minutes": 60,
+    # --- ноды и скорость ---
     "node_poll_interval_seconds": 60,
+    "auto_import_nodes": True,
+    "speed_drop_percent": 70,          # скорость упала на X% от нормы
+    "speed_window_minutes": 5,         # текущая скорость = среднее за N минут
+    "speed_baseline_hours": 3,         # норма = средняя скорость за N часов
+    "speed_min_baseline_mbps": 1.0,    # не следить за почти пустыми нодами
+    "speed_confirm_minutes": 10,       # падение должно держаться N минут
+    # --- проверка IP после падения скорости ---
+    "investigation_checks": 3,         # сколько раз проверять IP
+    "investigation_interval_minutes": 30,
+    "investigation_cooldown_minutes": 180,  # после завершения не начинать новую N минут
     "auto_switch_enabled": True,
+    "tcp_check_port": 443,
+    "latencylab_fail_percent": 50,     # запасной вариант, если wire не пришёл
+    "enabled_checkers": None,          # None → default_enabled() из реестра
     "checker_delay_ms": 1000,
-    "enabled_checkers": None,  # None → берём default_enabled() из реестра
+    # --- уведомления и прочее ---
     "daily_summary_enabled": True,
     "daily_summary_time": "10:00",
     "notify": {k: True for k in EVENT_TYPES},
     "events_retention_days": 90,
-    "auto_import_nodes": True,
-    "check_reserve_ips": False,
-    "latencylab_throttle_is_ban": True,
-    "latencylab_mode": "auto",
-    "latencylab_fail_percent": 50,
-    "tcp_check_port": 443,
-    "geopinger_places": ["Москва", "Санкт-Петербург", "Екатеринбург", "Новосибирск", "Казань"],
-    "geopinger_control_places": [],
-    "geopinger_fail_percent": 50,
 }
 
 # служебное состояние (не показывается как настройка)
@@ -69,8 +75,10 @@ async def get_all(db: AsyncSession) -> dict[str, Any]:
     result = {**DEFAULTS, **{k: v for k, v in stored.items() if k in DEFAULTS}}
     # дополняем notify новыми типами событий
     result["notify"] = {**DEFAULTS["notify"], **(result.get("notify") or {})}
-    if result["enabled_checkers"] is None:
-        result["enabled_checkers"] = default_enabled()
+    # оставляем только существующие источники (старые могли быть удалены из кода)
+    registered = set(all_checkers())
+    enabled = [n for n in (result["enabled_checkers"] or []) if n in registered]
+    result["enabled_checkers"] = enabled or default_enabled()
     return result
 
 

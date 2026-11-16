@@ -4,7 +4,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.tasks import spawn
 from app.integrations.cloudflare import CloudflareError
 from app.models import Domain, DomainIP, Node
 from app.models.domain import DomainStatus
@@ -53,10 +52,6 @@ def _set_ips(domain: Domain, ips: list[str]) -> None:
     domain.ips = new_list
 
 
-def _check_in_background(domain_id: int) -> None:
-    spawn(domain_service.run_cycle([domain_id]))
-
-
 @router.get("", response_model=list[DomainOut])
 async def list_domains(db: AsyncSession = Depends(get_db)):
     domains = (await db.execute(select(Domain).order_by(Domain.name))).scalars().all()
@@ -89,8 +84,6 @@ async def create_domain(data: DomainCreate, db: AsyncSession = Depends(get_db)):
     found = f", текущий IP {detected} ({src})" if detected and d.kind == "domain" else ""
     await record(db, "domain_changed", "Домен добавлен", f"{d.name}, IP в списке: {len(d.ips)}{found}",
                  domain=d.name, notify=False)
-    if d.enabled:
-        _check_in_background(d.id)
     return _out(d, await _nodes_by_address(db))
 
 
@@ -132,8 +125,6 @@ async def update_ips(domain_id: int, data: DomainIPsUpdate, db: AsyncSession = D
             parts.append("удалены: " + ", ".join(removed))
         await record(db, "domain_changed", "Список IP изменён", f"{d.name}: " + "; ".join(parts),
                      domain=d.name, notify=False)
-        if added and d.enabled:
-            _check_in_background(d.id)
     return _out(d, await _nodes_by_address(db))
 
 

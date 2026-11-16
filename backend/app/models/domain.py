@@ -41,7 +41,7 @@ class Domain(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     kind: Mapped[str] = mapped_column(String(16), default=DomainKind.DOMAIN, server_default=DomainKind.DOMAIN)
     source: Mapped[str] = mapped_column(String(16), default=DomainSource.MANUAL, server_default=DomainSource.MANUAL)
-    # порт для TCP-проверок (GeoPinger); None — глобальная настройка
+    # порт для проверки в Latency Lab; None — глобальная настройка
     check_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     auto_switch: Mapped[bool] = mapped_column(Boolean, default=True)

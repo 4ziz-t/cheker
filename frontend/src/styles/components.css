@@ -732,3 +732,70 @@ textarea.input {
     font-size: 16px; /* без автозума на iOS */
   }
 }
+
+/* ---------- проверки после падения скорости ---------- */
+.inv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.inv {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+.inv__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.inv__domain {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 14px;
+}
+.inv__domain:hover {
+  color: var(--accent);
+}
+.inv__reason {
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.inv__summary {
+  font-size: 13.5px;
+}
+.inv__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.inv-progress {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.inv-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+}
+.inv-dot--bad {
+  background: var(--bad);
+  border-color: var(--bad);
+}
+.inv-dot--ok {
+  background: var(--ok);
+  border-color: var(--ok);
+}

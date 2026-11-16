@@ -71,6 +71,35 @@
   word-break: break-all;
 }
 
+.node-speed {
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+.node-speed > div {
+  display: flex;
+  flex-direction: column;
+}
+.node-speed b {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.node-speed.is-drop {
+  border-color: rgba(227, 179, 65, 0.5);
+  background: var(--warn-soft);
+}
+.node-speed__flag {
+  margin-left: auto;
+  color: var(--warn);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
 .node-card__meta {
   margin: 0;
   display: grid;

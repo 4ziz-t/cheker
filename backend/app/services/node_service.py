@@ -1,18 +1,20 @@
 """Опрос нод Remnawave и уведомления о смене состояния."""
 import asyncio
 import logging
+import time
+from datetime import timedelta
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import SessionLocal
-from app.core.tasks import spawn
 from app.core.timeutils import fmt_duration, utcnow
 from app.integrations.remnawave import RemnaNode, RemnawaveClient, RemnawaveError
 from app.models import Domain, DomainIP, Node
 from app.models.domain import DomainSource
 from app.schemas import DOMAIN_RE, is_ipv4
-from app.services import domain_service, settings_service
+from app.services import domain_service, investigation_service, settings_service
+from app.services.speed import tracker
 from app.services.events import errors, record
 
 log = logging.getLogger(__name__)
@@ -59,7 +61,70 @@ async def _import_addresses(db: AsyncSession, remote: list[RemnaNode]) -> None:
         extra = f", текущий IP {detected}" if detected and not ip_addr else ""
         await record(db, "domain_imported", f"{what} добавлен из Remnawave",
                      f"{addr} — нода {', '.join(node_names)}{extra}", domain=addr, emoji="➕")
-        spawn(domain_service.run_cycle([d.id]))
+
+
+REALTIME_RECHECK_SEC = 3600
+# ноды, по текущему падению скорости которых уже приняты меры (сбрасывается, когда скорость вернулась)
+_drop_handled: set[str] = set()
+
+
+async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
+    """Обновляет скорость нод и запускает проверку IP, если скорость упала."""
+    cfg = await settings_service.get_all(db)
+    ts = time.time()
+
+    # realtime-скорость из панели (если поддерживается); иначе — прирост trafficUsedBytes
+    speeds = None
+    if tracker.realtime_supported is not False or ts - tracker.realtime_checked_at > REALTIME_RECHECK_SEC:
+        speeds = await RemnawaveClient().get_realtime_speeds()
+        tracker.realtime_supported = speeds is not None
+        tracker.realtime_checked_at = ts
+
+    nodes = {n.uuid: n for n in (await db.execute(select(Node))).scalars().all()}
+    now = utcnow()
+    drop_share = float(cfg["speed_drop_percent"]) / 100
+    min_base = float(cfg["speed_min_baseline_mbps"]) * 1_000_000 / 8
+    confirm = timedelta(minutes=int(cfg["speed_confirm_minutes"]))
+    triggered: list[tuple[Node, float, float]] = []
+
+    for rn in remote:
+        n = nodes.get(rn.uuid)
+        if n is None:
+            continue
+        if not rn.is_connected or rn.is_disabled:
+            # падение у лежащей ноды — это не «бан», о нём и так придёт «нода offline»
+            tracker.forget(rn.uuid)
+            _drop_handled.discard(rn.uuid)
+            n.speed_bps = n.baseline_bps = None
+            n.speed_drop_since = None
+            continue
+        if speeds is not None and rn.uuid in speeds:
+            tracker.add_speed(rn.uuid, speeds[rn.uuid], ts)
+        elif rn.traffic_used_bytes is not None:
+            tracker.add_counter(rn.uuid, rn.traffic_used_bytes, ts)
+
+        info = tracker.info(rn.uuid, int(cfg["speed_window_minutes"]), int(cfg["speed_baseline_hours"]), ts)
+        n.speed_bps = int(info.current_bps) if info.current_bps is not None else None
+        n.baseline_bps = int(info.baseline_bps) if info.baseline_bps is not None else None
+
+        dropped = (
+            info.current_bps is not None and info.baseline_bps is not None
+            and info.baseline_bps >= min_base
+            and info.current_bps <= info.baseline_bps * (1 - drop_share)
+        )
+        if not dropped:
+            n.speed_drop_since = None
+            _drop_handled.discard(rn.uuid)
+            continue
+        if n.speed_drop_since is None:
+            n.speed_drop_since = now
+        if now - n.speed_drop_since >= confirm and rn.uuid not in _drop_handled:
+            _drop_handled.add(rn.uuid)
+            triggered.append((n, info.current_bps, info.baseline_bps))
+    await db.commit()
+
+    for n, cur, base in triggered:
+        await investigation_service.on_speed_drop(db, n, cur, base)
 
 
 async def poll_nodes() -> bool:
@@ -108,6 +173,7 @@ async def poll_nodes() -> bool:
         await db.commit()
 
         await _import_addresses(db, remote)
+        await _update_speeds(db, remote)
 
         for kind, n in notifications:
             if kind == "offline":

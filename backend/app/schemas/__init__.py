@@ -158,6 +158,9 @@ class NodeOut(ORM):
     last_status_message: str | None
     offline_since: UTCDatetime | None
     updated_at: UTCDatetime
+    speed_bps: int | None = None
+    baseline_bps: int | None = None
+    speed_drop_since: UTCDatetime | None = None
     domain_id: int | None = None
     domain_status: str | None = None
 
@@ -180,26 +183,57 @@ class EventsPage(BaseModel):
     total: int
 
 
+# ------------------------------------------------------------ investigations
+class InvestigationOut(ORM):
+    id: int
+    domain_id: int
+    domain_name: str
+    node_name: str
+    ip: str | None
+    reason: str
+    status: str
+    checks_total: int
+    checks_done: int
+    blocked_count: int
+    attempts: int
+    results: list[dict[str, Any]] = []
+    summary: str
+    started_at: UTCDatetime
+    next_check_at: UTCDatetime | None
+    finished_at: UTCDatetime | None
+
+    @field_validator("results", mode="before")
+    @classmethod
+    def _parse_results(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except ValueError:
+                return []
+        return v or []
+
+
 # ------------------------------------------------------------ settings
 class SettingsUpdate(BaseModel):
-    check_interval_minutes: int | None = Field(None, ge=1, le=1440)
     node_poll_interval_seconds: int | None = Field(None, ge=10, le=3600)
+    auto_import_nodes: bool | None = None
+    speed_drop_percent: int | None = Field(None, ge=10, le=100)
+    speed_window_minutes: int | None = Field(None, ge=1, le=60)
+    speed_baseline_hours: int | None = Field(None, ge=1, le=48)
+    speed_min_baseline_mbps: float | None = Field(None, ge=0, le=100000)
+    speed_confirm_minutes: int | None = Field(None, ge=0, le=240)
+    investigation_checks: int | None = Field(None, ge=1, le=10)
+    investigation_interval_minutes: int | None = Field(None, ge=1, le=720)
+    investigation_cooldown_minutes: int | None = Field(None, ge=0, le=10080)
     auto_switch_enabled: bool | None = None
-    checker_delay_ms: int | None = Field(None, ge=0, le=60000)
+    tcp_check_port: int | None = Field(None, ge=1, le=65535)
+    latencylab_fail_percent: int | None = Field(None, ge=1, le=100)
     enabled_checkers: list[str] | None = None
+    checker_delay_ms: int | None = Field(None, ge=0, le=60000)
     daily_summary_enabled: bool | None = None
     daily_summary_time: str | None = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     notify: dict[str, bool] | None = None
     events_retention_days: int | None = Field(None, ge=1, le=3650)
-    auto_import_nodes: bool | None = None
-    check_reserve_ips: bool | None = None
-    latencylab_throttle_is_ban: bool | None = None
-    latencylab_mode: str | None = Field(None, pattern=r"^(auto|tspu|multiscan)$")
-    latencylab_fail_percent: int | None = Field(None, ge=1, le=100)
-    tcp_check_port: int | None = Field(None, ge=1, le=65535)
-    geopinger_places: list[str] | None = None
-    geopinger_control_places: list[str] | None = None
-    geopinger_fail_percent: int | None = Field(None, ge=1, le=100)
 
 
 class IntegrationsUpdate(BaseModel):

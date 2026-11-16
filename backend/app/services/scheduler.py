@@ -1,4 +1,4 @@
-"""Фоновые задачи: проверка доменов, опрос нод, сводка, очистка."""
+"""Фоновые задачи: опрос нод (скорость), проверки IP после падения скорости, сводка, очистка."""
 import asyncio
 import logging
 import time
@@ -10,8 +10,7 @@ from app.core import integrations
 from app.core.database import SessionLocal
 from app.core.timeutils import local_tz, utcnow
 from app.models import Event, UserSession
-from app.services import settings_service
-from app.services.domain_service import run_cycle
+from app.services import investigation_service, settings_service
 from app.services.node_service import poll_nodes
 from app.services.summary import send_summary
 
@@ -21,14 +20,13 @@ log = logging.getLogger(__name__)
 class Scheduler:
     def __init__(self) -> None:
         self._tasks: list[asyncio.Task] = []
-        self._wake_domains = asyncio.Event()
+        self._wake_investigations = asyncio.Event()
         self._wake_nodes = asyncio.Event()
-        self.next_domain_check: float | None = None
         self.next_node_poll: float | None = None
 
     def start(self) -> None:
         self._tasks = [
-            asyncio.create_task(self._domains_loop(), name="domains"),
+            asyncio.create_task(self._investigations_loop(), name="investigations"),
             asyncio.create_task(self._summary_loop(), name="summary"),
         ]
         self._tasks.append(asyncio.create_task(self._nodes_loop(), name="nodes"))
@@ -40,7 +38,6 @@ class Scheduler:
 
     def wake(self) -> None:
         """Пересчитать расписание (после изменения настроек)."""
-        self._wake_domains.set()
         self._wake_nodes.set()
 
     async def _sleep_or_wake(self, event: asyncio.Event, seconds: float) -> bool:
@@ -52,22 +49,18 @@ class Scheduler:
         except asyncio.TimeoutError:
             return False
 
-    async def _domains_loop(self) -> None:
-        await asyncio.sleep(5)
-        last_run = 0.0
+    async def _investigations_loop(self) -> None:
+        """Проверки IP после падения скорости нод (по расписанию каждой проверки)."""
+        await asyncio.sleep(10)
         while True:
-            async with SessionLocal() as db:
-                interval = int(await settings_service.get(db, "check_interval_minutes")) * 60
-            due = last_run + interval
-            if time.time() >= due:
-                try:
-                    await run_cycle()
-                except Exception:  # noqa: BLE001
-                    log.exception("Ошибка цикла проверки доменов")
-                last_run = time.time()
-                due = last_run + interval
-            self.next_domain_check = due
-            await self._sleep_or_wake(self._wake_domains, due - time.time())
+            try:
+                await investigation_service.tick()
+            except Exception:  # noqa: BLE001
+                log.exception("Ошибка проверок после падения скорости")
+            await self._sleep_or_wake(self._wake_investigations, 20)
+
+    def wake_investigations(self) -> None:
+        self._wake_investigations.set()
 
     async def _nodes_loop(self) -> None:
         await asyncio.sleep(2)

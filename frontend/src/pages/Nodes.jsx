@@ -8,7 +8,7 @@ import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
 import usePolling from '../hooks/usePolling.js';
-import { formatDuration, formatRelative } from '../utils/format.js';
+import { formatDuration, formatRelative, formatSpeed } from '../utils/format.js';
 import '../styles/nodes.css';
 
 function nodeState(n) {
@@ -152,6 +152,22 @@ export default function Nodes() {
                   {n.address}
                   {n.port ? `:${n.port}` : ''}
                 </div>
+
+                {st.key === 'online' && (
+                  <div className={`node-speed ${n.speed_drop_since ? 'is-drop' : ''}`}>
+                    <div>
+                      <span className="muted small">Скорость</span>
+                      <b>{formatSpeed(n.speed_bps)}</b>
+                    </div>
+                    <div>
+                      <span className="muted small">Норма</span>
+                      <span>{n.baseline_bps === null ? 'набирается…' : formatSpeed(n.baseline_bps)}</span>
+                    </div>
+                    {n.speed_drop_since && (
+                      <span className="node-speed__flag">↓ падение {formatDuration(n.speed_drop_since)}</span>
+                    )}
+                  </div>
+                )}
 
                 <dl className="node-card__meta">
                   <div>
