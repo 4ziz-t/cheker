@@ -224,4 +224,4 @@ npm run dev               # http://localhost:5173, /api проксируется
 | GET/PUT | `/api/settings/integrations` | токены и адреса интеграций |
 | POST | `/api/settings/integrations/test/{group}` | проверить интеграцию |
 | POST | `/api/system/check-now` | проверить все домены один раз |
-| GET | `/api/tools/check-ip?ip=&port=` | проверить IP или домен (домен → текущий IP), результат по каждому источнику |
+| POST | `/api/tools/check` | ручная проверка IP или домена одним источником: `{"target", "checker": "latencylab"\|"bschek", "port"?, "units"?}` |

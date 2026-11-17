@@ -10,8 +10,7 @@ export const dashboardApi = {
   get: () => api.get('/dashboard'),
   status: () => api.get('/system/status'),
   checkNow: () => api.post('/system/check-now'),
-  checkIp: (ip, port) =>
-    api.get(`/tools/check-ip?ip=${encodeURIComponent(ip)}${port ? `&port=${encodeURIComponent(port)}` : ''}`),
+  check: (body) => api.post('/tools/check', body),
 };
 
 export const domainsApi = {

@@ -1,7 +1,7 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import ValidationError
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,54 +62,62 @@ async def check_now():
     return {"ok": True}
 
 
-@router.get("/tools/check-ip")
-async def tool_check_ip(
-    ip: str = Query(..., description="IPv4 или домен"),
-    port: int | None = Query(None, ge=1, le=65535),
-    db: AsyncSession = Depends(get_db),
-):
-    """Ручная проверка IP или домена всеми включёнными источниками (каждый — отдельной колонкой)."""
-    raw = ip.strip()
-    resolved_from, source = None, "ip"
+class ToolCheckIn(BaseModel):
+    target: str = Field(min_length=1, max_length=255)       # IPv4 или домен
+    checker: str                                              # latencylab | bschek | …
+    port: int | None = Field(None, ge=1, le=65535)
+    units: list[str] | None = None                            # bschekbot: ключи единиц для этой проверки
+
+
+async def _resolve_target(raw: str) -> tuple[str, str | None, str]:
+    """IPv4 → как есть; домен → текущий IP (Cloudflare, затем DNS)."""
     try:
-        target_ip = normalize_ip(raw)
+        return normalize_ip(raw), None, "ip"
     except ValueError:
-        try:
-            name = DomainCreate(name=raw).name
-        except ValidationError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Введите IPv4 или домен") from e
-        found, source = await detect_current_ip(name)
-        if not found:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                                f"Не удалось определить IP домена {name}: нет A-записи и не резолвится")
-        target_ip, resolved_from = found, name
+        pass
+    try:
+        name = DomainCreate(name=raw).name
+    except ValidationError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Введите IPv4 или домен") from e
+    found, source = await detect_current_ip(name)
+    if not found:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"Не удалось определить IP домена {name}: нет A-записи и не резолвится")
+    return found, name, source
 
-    cfg = await settings_service.get_all(db)
-    port = port or cfg["tcp_check_port"]
-    enabled = cfg["enabled_checkers"]
+
+@router.post("/tools/check")
+async def tool_check(data: ToolCheckIn, db: AsyncSession = Depends(get_db)):
+    """Ручная проверка IP или домена ОДНИМ источником (кнопка на дашборде).
+
+    Источник запускается, даже если он выключен в настройках, — пользователь нажал явно.
+    """
     registry = all_checkers()
-    res = await check_ip(target_ip, enabled, port, cfg)
-    by_name = {r.checker: r for r in res.results}
+    if data.checker not in registry:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Неизвестный источник")
+    ip, domain, source = await _resolve_target(data.target.strip())
 
-    sources = []
-    for name, cls in registry.items():
-        r = by_name.get(name)
-        sources.append({
-            "name": name,
-            "title": cls.title,
-            "enabled": name in enabled,
-            "blocked": r.blocked if r else None,
-            "error": r.error if r else None,
-            "details": r.details if r else {},
-        })
+    cfg = dict(await settings_service.get_all(db))
+    port = data.port or cfg["tcp_check_port"]
+    if data.units is not None:
+        units = [u.strip() for u in data.units if u.strip()]
+        if not units:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Выберите хотя бы одного оператора")
+        cfg["bschek_units"] = units
+
+    res = await check_ip(ip, [data.checker], port, cfg)
+    r = res.results[0] if res.results else None
     return {
-        "input": raw,
-        "ip": target_ip,
-        "domain": resolved_from,
+        "input": data.target,
+        "ip": ip,
+        "domain": domain,
         "ip_source": source,
         "port": port,
-        "blocked": res.blocked,
-        "sources": sources,
+        "checker": data.checker,
+        "title": registry[data.checker].title,
+        "blocked": r.blocked if r else None,
+        "error": r.error if r else "Нет результата",
+        "details": r.details if r else {},
     }
 
 

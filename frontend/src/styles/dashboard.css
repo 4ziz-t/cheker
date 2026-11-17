@@ -164,6 +164,36 @@
   word-break: break-word;
 }
 
+.src-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.src-result__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.src-result__target {
+  word-break: break-all;
+}
+.src-col > .btn {
+  align-self: flex-start;
+}
+.bs-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bs-picker--compact .bs-group {
+  padding: 8px 10px;
+  gap: 6px;
+}
+
 .src-facts {
   margin: 0;
   display: flex;
