@@ -404,6 +404,23 @@ textarea.input {
   color: var(--text-2);
 }
 
+/* ---------- точки статуса ---------- */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot--ok {
+  background: var(--ok);
+}
+.dot--off {
+  background: var(--muted);
+}
+.dot--bad {
+  background: var(--bad);
+}
+
 /* ---------- алерты ---------- */
 .alert {
   display: flex;

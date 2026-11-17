@@ -22,6 +22,10 @@ from app.core import integrations
 from app.core.config import get_settings
 
 DEFAULT_UNITS = ["*|цфо|off"]
+OPERATOR_NAMES = {
+    "mts": "МТС", "beeline": "Билайн", "megafon": "МегаФон", "tele2": "T2", "t2": "T2",
+    "yota": "Yota", "t-mobile": "Т-Мобайл", "tmobile": "Т-Мобайл", "sberm": "СберМобайл", "rtk": "Ростелеком",
+}
 MAX_WAIT = 300.0          # сколько всего ждём результат одной проверки
 _lock = asyncio.Lock()    # лимиты у bsbord на аккаунт — шлём по одному
 
@@ -135,21 +139,32 @@ class BschekChecker(BaseChecker):
 
         by_target = data.get("by_target") or {}
         legs = next(iter(by_target.values()), {}).get("by_operator") or {}
-        ok_units, fail_units = [], []
+        ok_units, fail_units, units_list = [], [], []
         for op_key, leg in legs.items():
-            if not leg.get("ok") or leg.get("dns_fail"):  # проба не выполнена — не считаем
-                continue
+            code = leg.get("operator") or op_key.split("|")[0]
+            name = OPERATOR_NAMES.get(code, code)
+            label = f"{name} {leg.get('region', '')}".strip()
             tcp = leg.get("tcp") or {}
-            reachable = tcp.get("ok") if isinstance(tcp.get("ok"), bool) else (leg.get("icmp") or {}).get("ok")
-            if not isinstance(reachable, bool):
-                continue
-            label = f"{leg.get('operator', op_key)} {leg.get('region', '')}".strip()
-            (ok_units if reachable else fail_units).append(label)
+            reachable = None
+            if leg.get("ok") and not leg.get("dns_fail"):  # проба выполнена
+                reachable = tcp.get("ok") if isinstance(tcp.get("ok"), bool) else (leg.get("icmp") or {}).get("ok")
+            units_list.append({
+                "op_key": op_key,
+                "name": name,
+                "region": leg.get("region"),
+                "dpi": leg.get("dpi"),
+                "reachable": reachable if isinstance(reachable, bool) else None,
+                "tcp": f"{tcp.get('received', '?')}/{tcp.get('total', '?')}" if tcp else None,
+                "error": leg.get("error") or tcp.get("error"),
+            })
+            if isinstance(reachable, bool):
+                (ok_units if reachable else fail_units).append(label)
 
         details = {
             "port": port,
             "units_ok": ok_units,
             "units_fail": fail_units,
+            "units": units_list,
             "cost_credits": data.get("cost_credits"),
         }
         total = len(ok_units) + len(fail_units)

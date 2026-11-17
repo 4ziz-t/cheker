@@ -1,18 +1,20 @@
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.checkers import all_checkers
 from app.core import integrations
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.tasks import spawn
 from app.core.timeutils import utcnow
 from app.models import Domain, DomainIP, Event, Investigation, Node
-from app.schemas import EventOut, InvestigationOut, normalize_ip
+from app.schemas import DomainCreate, EventOut, InvestigationOut, normalize_ip
 from app.services import settings_service
-from app.services.domain_service import cycle_state, run_cycle
+from app.services.domain_service import cycle_state, detect_current_ip, run_cycle
 from app.services.events import errors
 from app.services.ip_check import check_ip
 from app.services.scheduler import scheduler
@@ -62,15 +64,53 @@ async def check_now():
 
 @router.get("/tools/check-ip")
 async def tool_check_ip(
-    ip: str = Query(...), port: int | None = Query(None, ge=1, le=65535), db: AsyncSession = Depends(get_db)
+    ip: str = Query(..., description="IPv4 или домен"),
+    port: int | None = Query(None, ge=1, le=65535),
+    db: AsyncSession = Depends(get_db),
 ):
+    """Ручная проверка IP или домена всеми включёнными источниками (каждый — отдельной колонкой)."""
+    raw = ip.strip()
+    resolved_from, source = None, "ip"
     try:
-        ip = normalize_ip(ip)
-    except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+        target_ip = normalize_ip(raw)
+    except ValueError:
+        try:
+            name = DomainCreate(name=raw).name
+        except ValidationError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Введите IPv4 или домен") from e
+        found, source = await detect_current_ip(name)
+        if not found:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"Не удалось определить IP домена {name}: нет A-записи и не резолвится")
+        target_ip, resolved_from = found, name
+
     cfg = await settings_service.get_all(db)
-    res = await check_ip(ip, cfg["enabled_checkers"], port or cfg["tcp_check_port"], cfg)
-    return {"ip": ip, "blocked": res.blocked, "details": res.to_details(), "errors": res.errors}
+    port = port or cfg["tcp_check_port"]
+    enabled = cfg["enabled_checkers"]
+    registry = all_checkers()
+    res = await check_ip(target_ip, enabled, port, cfg)
+    by_name = {r.checker: r for r in res.results}
+
+    sources = []
+    for name, cls in registry.items():
+        r = by_name.get(name)
+        sources.append({
+            "name": name,
+            "title": cls.title,
+            "enabled": name in enabled,
+            "blocked": r.blocked if r else None,
+            "error": r.error if r else None,
+            "details": r.details if r else {},
+        })
+    return {
+        "input": raw,
+        "ip": target_ip,
+        "domain": resolved_from,
+        "ip_source": source,
+        "port": port,
+        "blocked": res.blocked,
+        "sources": sources,
+    }
 
 
 @router.get("/dashboard")

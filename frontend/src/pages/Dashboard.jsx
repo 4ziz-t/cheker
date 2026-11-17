@@ -10,7 +10,7 @@ import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
 import usePolling from '../hooks/usePolling.js';
-import { describeCheck, formatDuration, isIPv4 } from '../utils/format.js';
+import { describeCheck, formatDuration } from '../utils/format.js';
 import '../styles/dashboard.css';
 
 const INTEGRATION_NAMES = { remnawave: 'Remnawave', cloudflare: 'Cloudflare', telegram: 'Telegram' };
@@ -35,8 +35,103 @@ function StatCard({ label, value, total, tone, hint, to }) {
   );
 }
 
+const IP_SOURCE = { cloudflare: 'A-запись Cloudflare', dns: 'DNS' };
+
+function SourceVerdict({ src }) {
+  if (!src.enabled) return <Badge tone="muted">Выключен</Badge>;
+  if (src.blocked === true) return <Badge tone="bad">В бане</Badge>;
+  if (src.blocked === false) return <Badge tone="ok">Доступен</Badge>;
+  return <Badge tone="warn">Ошибка</Badge>;
+}
+
+function LatencyDetails({ d }) {
+  return (
+    <dl className="src-facts">
+      {d.wire_ok !== undefined && d.wire_ok !== null && (
+        <div>
+          <dt>С провода (wire)</dt>
+          <dd className={d.wire_ok ? 'text-ok' : 'text-bad'}>{d.wire_ok ? 'доступен' : 'недоступен'}</dd>
+        </div>
+      )}
+      {d.label && (
+        <div>
+          <dt>Вердикт</dt>
+          <dd>{d.label}</dd>
+        </div>
+      )}
+      {d.method && (
+        <div>
+          <dt>Метод</dt>
+          <dd className="mono">/{d.method}</dd>
+        </div>
+      )}
+      {(d.operators_ok?.length > 0 || d.operators_fail?.length > 0) && (
+        <div>
+          <dt>Операторы{d.fallback === 'operators' ? ' (wire не пришёл)' : ''}</dt>
+          <dd className="src-ops">
+            {(d.operators_ok || []).map((o) => (
+              <span key={`ok-${o}`} className="src-op src-op--ok">{o}</span>
+            ))}
+            {(d.operators_fail || []).map((o) => (
+              <span key={`f-${o}`} className="src-op src-op--bad">{o}</span>
+            ))}
+          </dd>
+        </div>
+      )}
+    </dl>
+  );
+}
+
+function BschekDetails({ d }) {
+  const units = d.units || [];
+  return (
+    <>
+      {units.length > 0 && (
+        <ul className="unit-list">
+          {units.map((u) => (
+            <li key={u.op_key} className="unit">
+              <span className={`dot ${u.reachable === true ? 'dot--ok' : u.reachable === false ? 'dot--bad' : 'dot--off'}`} />
+              <span className="unit__name">{u.name}</span>
+              <span className="muted small">{u.region}</span>
+              {u.dpi === 'on' && <span className="chip__count">БС</span>}
+              <span className="unit__state">
+                {u.reachable === true && 'доступен'}
+                {u.reachable === false && <span className="text-bad">недоступен</span>}
+                {u.reachable === null && <span className="muted">{u.error || 'нет данных'}</span>}
+                {u.tcp && <span className="muted small"> · TCP {u.tcp}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {d.cost_credits ? <p className="muted small">Списано: {(d.cost_credits / 100).toFixed(2)} ₽</p> : null}
+    </>
+  );
+}
+
+function SourceColumn({ src }) {
+  const d = src.details || {};
+  return (
+    <div className={`src-col ${src.enabled ? '' : 'is-off'}`}>
+      <div className="src-col__head">
+        <span className="src-col__title">{src.title}</span>
+        <SourceVerdict src={src} />
+      </div>
+      {!src.enabled && (
+        <p className="field__hint">Выключен — включите в «Настройки → Источники», чтобы проверять и им.</p>
+      )}
+      {src.error && <p className="src-col__error">{src.error}</p>}
+      {src.enabled && src.name === 'latencylab' && <LatencyDetails d={d} />}
+      {src.enabled && src.name === 'bschek' && <BschekDetails d={d} />}
+      {src.enabled && !['latencylab', 'bschek'].includes(src.name) && (
+        <p className="small">{describeCheck(src.name, { ...d, blocked: src.blocked })}</p>
+      )}
+    </div>
+  );
+}
+
 function IpTool() {
-  const [ip, setIp] = useState('');
+  const [target, setTarget] = useState('');
   const [port, setPort] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
@@ -44,15 +139,13 @@ function IpTool() {
 
   const run = async (e) => {
     e.preventDefault();
-    if (!isIPv4(ip)) {
-      setError('Введите корректный IPv4');
-      return;
-    }
+    const value = target.trim();
+    if (!value) return;
     setBusy(true);
     setError('');
     setResult(null);
     try {
-      setResult(await dashboardApi.checkIp(ip.trim(), port.trim()));
+      setResult(await dashboardApi.checkIp(value, port.trim()));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -62,14 +155,15 @@ function IpTool() {
 
   return (
     <section className="card panel">
-      <h2 className="panel__title">Проверить IP</h2>
+      <h2 className="panel__title">Проверить IP или домен</h2>
       <form className="ip-tool" onSubmit={run}>
         <input
           className="input mono"
-          placeholder="1.2.3.4"
-          value={ip}
-          onChange={(e) => setIp(e.target.value)}
-          inputMode="decimal"
+          placeholder="1.2.3.4 или de1.example.com"
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          autoCapitalize="none"
+          spellCheck={false}
         />
         <input
           className="input mono ip-tool__port"
@@ -77,25 +171,40 @@ function IpTool() {
           value={port}
           onChange={(e) => setPort(e.target.value.replace(/\D/g, '').slice(0, 5))}
           inputMode="numeric"
-          title="Порт для TCP-проверки (пусто — из настроек)"
+          title="Порт для проверки (пусто — из настроек)"
         />
-        <button type="submit" className="btn btn--primary" disabled={busy}>
+        <button type="submit" className="btn btn--primary" disabled={busy || !target.trim()}>
           {busy ? <Spinner size={16} /> : <IconSearch size={18} />}
-          <span>Проверить</span>
+          <span>{busy ? 'Проверяю…' : 'Проверить'}</span>
         </button>
       </form>
+      {busy && <p className="field__hint">Проверка может занять до пары минут — источники отвечают не сразу.</p>}
       {error && <div className="alert alert--bad">{error}</div>}
       {result && (
         <div className="ip-tool__result">
-          <span className="mono">{result.ip}</span>
-          {result.blocked === true && <Badge tone="bad">В бане</Badge>}
-          {result.blocked === false && <Badge tone="ok">Доступен</Badge>}
-          {result.blocked === null && <Badge tone="warn">Не удалось проверить</Badge>}
-          {Object.entries(result.details).map(([name, d]) => (
-            <div key={name} className="ip-tool__source">
-              {describeCheck(name, d)}
-            </div>
-          ))}
+          <div className="ip-tool__summary">
+            {result.domain && (
+              <>
+                <span className="mono">{result.domain}</span>
+                <span className="muted">→</span>
+              </>
+            )}
+            <span className="mono ip-tool__ip">{result.ip}</span>
+            <span className="muted small">
+              порт {result.port}
+              {result.domain && ` · IP из: ${IP_SOURCE[result.ip_source] || result.ip_source}`}
+            </span>
+            <span className="ip-tool__verdict">
+              {result.blocked === true && <Badge tone="bad">Итог: в бане</Badge>}
+              {result.blocked === false && <Badge tone="ok">Итог: доступен</Badge>}
+              {result.blocked === null && <Badge tone="warn">Итог: не удалось проверить</Badge>}
+            </span>
+          </div>
+          <div className="ip-tool__cols">
+            {result.sources.map((s) => (
+              <SourceColumn key={s.name} src={s} />
+            ))}
+          </div>
         </div>
       )}
     </section>
