@@ -16,6 +16,21 @@ const GROUPS = [
 const opKey = (operator, dpi) => `${operator}|*|${dpi}`;
 const allKey = (dpi) => `*|*|${dpi}`;
 
+/** Ключ, который можно показать кнопкой: «оператор|*|on/off» или «*|*|on/off». */
+const isButtonKey = (key) => {
+  const [, reg, bs] = key.split('|');
+  return reg === '*' && (bs === 'on' || bs === 'off');
+};
+
+/** Человекочитаемое описание произвольного ключа: «Все операторы · ЦФО · без БС». */
+function describeKey(key, names) {
+  const [op = '*', reg = '*', bs = '*'] = key.split('|');
+  const who = !op || op === '*' ? 'Все операторы' : names[op] || op;
+  const where = !reg || reg === '*' ? 'все округа' : reg.toUpperCase();
+  const mode = bs === 'on' ? 'с БС' : bs === 'off' ? 'без БС' : 'БС любой';
+  return `${who} · ${where} · ${mode}`;
+}
+
 /** Сколько живых единиц покрывает набор ключей (= число списаний за одну проверку). */
 export function countCovered(units, keys) {
   const match = (u, key) => {
@@ -53,6 +68,15 @@ export default function BschekOperatorPicker({ units, value, onChange, compact }
   }, [units]);
 
   const update = (list) => onChange([...new Set(list)]);
+
+  const names = useMemo(() => {
+    const map = {};
+    (units || []).forEach((u) => {
+      map[u.operator] = u.name || u.operator;
+    });
+    return map;
+  }, [units]);
+  const otherKeys = selected.filter((k) => !isButtonKey(k));
 
   const toggleOperator = (operator, dpi) => {
     const key = opKey(operator, dpi);
@@ -113,6 +137,26 @@ export default function BschekOperatorPicker({ units, value, onChange, compact }
           </div>
         );
       })}
+
+      {otherKeys.length > 0 && (
+        <div className="bs-group">
+          <span className="field__label">Также выбрано</span>
+          <div className="city-chips">
+            {otherKeys.map((k) => (
+              <button
+                key={k}
+                type="button"
+                className="chip chip--sm is-active"
+                title={`${k} — нажмите, чтобы убрать`}
+                onClick={() => update(selected.filter((x) => x !== k))}
+              >
+                {describeKey(k, names)} ✕
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {selected.length === 0 && <span className="field__hint text-warn">Операторы не выбраны</span>}
     </div>
   );
 }

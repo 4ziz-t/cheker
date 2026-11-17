@@ -21,7 +21,6 @@ from app.checkers.registry import register_checker
 from app.core import integrations
 from app.core.config import get_settings
 
-DEFAULT_UNITS = ["*|цфо|off"]
 OPERATOR_NAMES = {
     "mts": "МТС", "beeline": "Билайн", "megafon": "МегаФон", "tele2": "T2", "t2": "T2",
     "yota": "Yota", "t-mobile": "Т-Мобайл", "tmobile": "Т-Мобайл", "sberm": "СберМобайл", "rtk": "Ростелеком",
@@ -121,7 +120,10 @@ class BschekChecker(BaseChecker):
         if not integrations.get("bschek_token"):
             return CheckResult(self.name, None, error="Не задан API-ключ bschekbot (Настройки → Интеграции)")
         port = int(port or self.options.get("tcp_check_port") or 443)
-        units = list(self.options.get("bschek_units") or DEFAULT_UNITS)
+        units = list(self.options.get("bschek_units") or [])
+        if not units:
+            # ничего не выбрано — не проверяем и ничего не списываем
+            return CheckResult(self.name, None, error="Не выбраны операторы (Настройки → Источники → bschekbot)")
         dpi = derive_dpi(units, self.options.get("bschek_dpi") or "off")
         fail_ratio = float(self.options.get("bschek_fail_percent", 50)) / 100
 

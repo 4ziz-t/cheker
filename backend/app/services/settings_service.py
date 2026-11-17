@@ -42,7 +42,7 @@ DEFAULTS: dict[str, Any] = {
     "auto_switch_enabled": True,
     "tcp_check_port": 443,
     "latencylab_fail_percent": 50,     # запасной вариант, если wire не пришёл
-    "bschek_units": ["*|цфо|off"],     # единицы bschekbot: оператор|округ|БС (селекторы)
+    "bschek_units": [],                # единицы bschekbot: оператор|округ|БС; пусто — выберите в настройках
     "bschek_dpi": "off",               # off — только без Белого списка
     "bschek_fail_percent": 50,
     "enabled_checkers": None,          # None → default_enabled() из реестра
@@ -117,4 +117,13 @@ async def migrate(db: AsyncSession) -> None:
             if "latencylab" not in current:
                 row.value = json.dumps(["latencylab", *current])
         await set_state(db, "migrated_latencylab", True)
+        await db.commit()
+
+    # Раньше по умолчанию стоял скрытый выбор «*|цфо|off» (все операторы ЦФО без БС) —
+    # убираем его, чтобы операторы выбирались только явно.
+    if not await get_state(db, "migrated_bschek_units"):
+        row = await db.get(Setting, "bschek_units")
+        if row and json.loads(row.value) == ["*|цфо|off"]:
+            row.value = json.dumps([])
+        await set_state(db, "migrated_bschek_units", True)
         await db.commit()
