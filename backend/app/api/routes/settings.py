@@ -132,6 +132,6 @@ async def bschek_units():
     except BschekError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
     return [
-        {k: u.get(k) for k in ("op_key", "operator", "name", "region", "dpi", "channel_state", "probeable")}
+        {k: u.get(k) for k in ("op_key", "operator", "name", "region", "region_code", "dpi", "channel_state", "probeable")}
         for u in units
     ]
