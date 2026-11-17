@@ -228,6 +228,9 @@ class SettingsUpdate(BaseModel):
     auto_switch_enabled: bool | None = None
     tcp_check_port: int | None = Field(None, ge=1, le=65535)
     latencylab_fail_percent: int | None = Field(None, ge=1, le=100)
+    bschek_units: list[str] | None = None
+    bschek_dpi: str | None = Field(None, pattern=r"^(on|off|any)$")
+    bschek_fail_percent: int | None = Field(None, ge=1, le=100)
     enabled_checkers: list[str] | None = None
     checker_delay_ms: int | None = Field(None, ge=0, le=60000)
     daily_summary_enabled: bool | None = None

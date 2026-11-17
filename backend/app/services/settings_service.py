@@ -21,7 +21,7 @@ EVENT_TYPES: dict[str, str] = {
     "domain_imported": "Домен/IP ноды добавлен из Remnawave",
     "node_offline": "Нода offline",
     "node_online": "Нода снова online",
-    "integration_error": "Ошибки API (Cloudflare, Remnawave, Latency Lab)",
+    "integration_error": "Ошибки API (Cloudflare, Remnawave, Latency Lab, bschekbot)",
     "security": "Блокировка входа (подбор пароля)",
     "daily_summary": "Ежедневная сводка",
 }
@@ -42,6 +42,9 @@ DEFAULTS: dict[str, Any] = {
     "auto_switch_enabled": True,
     "tcp_check_port": 443,
     "latencylab_fail_percent": 50,     # запасной вариант, если wire не пришёл
+    "bschek_units": ["*|цфо|off"],     # единицы bschekbot: оператор|округ|БС (селекторы)
+    "bschek_dpi": "off",               # off — только без Белого списка
+    "bschek_fail_percent": 50,
     "enabled_checkers": None,          # None → default_enabled() из реестра
     "checker_delay_ms": 1000,
     # --- уведомления и прочее ---

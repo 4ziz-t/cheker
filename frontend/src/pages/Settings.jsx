@@ -4,6 +4,7 @@ import { dashboardApi, settingsApi } from '../api/index.js';
 import { IconLogout, IconSend } from '../components/Icons.jsx';
 import IntegrationsPanel from '../components/IntegrationsPanel.jsx';
 import LatencyLabSettings from '../components/LatencyLabSettings.jsx';
+import BschekSettings from '../components/BschekSettings.jsx';
 import PageHeader, { ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -21,6 +22,7 @@ const TABS = [
 // какие источники имеют свой блок настроек
 const SOURCE_SETTINGS = {
   latencylab: LatencyLabSettings,
+  bschek: BschekSettings,
 };
 
 function NumberField({ label, hint, value, onChange, min, max, suffix }) {
@@ -333,7 +335,7 @@ export default function Settings({ onLogout }) {
                 <section key={c.name} className={`card panel source ${enabled ? 'is-on' : ''}`}>
                   <div className="source__head">
                     <Toggle checked={enabled} onChange={(v) => toggleChecker(c.name, v)} label={c.title} />
-                    {i === 0 && <span className="tag">основной</span>}
+                    <span className={`tag ${i === 0 ? '' : 'tag--muted'}`}>{i === 0 ? 'основной' : 'дополнительный'}</span>
                   </div>
                   <p className="field__hint">{c.description}</p>
                   {checkerStatus[c.name] && <p className="source__status">{checkerStatus[c.name]}</p>}

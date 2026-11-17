@@ -51,6 +51,7 @@ export const settingsApi = {
   integrations: () => api.get('/settings/integrations'),
   updateIntegrations: (values) => api.put('/settings/integrations', { values }),
   testIntegration: (group) => api.post(`/settings/integrations/test/${group}`),
+  bschekUnits: () => api.get('/settings/bschek/units'),
   testTelegram: () => api.post('/settings/test-telegram'),
   testSummary: () => api.post('/settings/test-summary'),
 };

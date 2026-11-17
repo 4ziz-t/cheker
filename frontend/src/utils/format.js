@@ -101,6 +101,7 @@ export function parseIpList(text) {
 
 export const CHECKER_TITLES = {
   latencylab: 'Latency Lab',
+  bschek: 'bschekbot',
 };
 
 export const INVESTIGATION_STATUS = {
@@ -130,6 +131,13 @@ export function describeCheck(name, d) {
     const ok = d.operators_ok || [];
     const fail = d.operators_fail || [];
     if (ok.length + fail.length) parts.push(`операторы: ${ok.length}/${ok.length + fail.length} доступен`);
+  }
+  if (d.units_ok || d.units_fail) {
+    const ok = d.units_ok || [];
+    const fail = d.units_fail || [];
+    parts.push(`доступен у ${ok.length}/${ok.length + fail.length} единиц`);
+    if (fail.length) parts.push(`недоступен: ${fail.join(', ')}`);
+    if (d.cost_credits) parts.push(`списано ${(d.cost_credits / 100).toFixed(2)} ₽`);
   }
   if (d.port) parts.push(`порт ${d.port}`);
   if (d.method) parts.push(`метод /${d.method}`);

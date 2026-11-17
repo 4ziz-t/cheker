@@ -31,6 +31,8 @@ FIELDS: list[Field] = [
     Field("telegram_chat_id", "Chat ID", "telegram", secret=False, hint="Ваш id, можно узнать у @userinfobot"),
     Field("latencylab_token", "API-ключ (ll_…)", "latencylab",
           hint="latencylab.ru → Профиль (вход через Telegram) → API-ключ"),
+    Field("bschek_token", "API-ключ (bsk_live_…)", "bschek",
+          hint="bsbord.com → Кабинет → API. Нужен тариф Bronze и выше"),
 ]
 FIELD_MAP = {f.key: f for f in FIELDS}
 
@@ -39,6 +41,7 @@ GROUPS = {
     "cloudflare": "Cloudflare",
     "telegram": "Telegram",
     "latencylab": "Latency Lab",
+    "bschek": "bschekbot",
 }
 
 DB_PREFIX = "integration."

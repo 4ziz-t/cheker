@@ -113,10 +113,25 @@ async def test_integration(group: str):
         if group == "telegram":
             await telegram.send_message("✅ <b>Тестовое уведомление</b>\nCheker на связи.")
             return {"ok": True, "message": "Сообщение отправлено"}
-        if group == "latencylab":
-            msg = await all_checkers()["latencylab"](get_http()).status()
-            ok = bool(msg) and not msg.startswith(("Ошибка", "Токен не задан", "Баланс: ошибка", "Не удалось"))
+        if group in ("latencylab", "bschek"):
+            msg = await all_checkers()[group](get_http()).status()
+            ok = bool(msg) and not msg.startswith(("Ошибка", "Ключ не задан", "Токен не задан", "Не удалось"))
             return {"ok": ok, "message": msg or "—"}
     except (RemnawaveError, CloudflareError, telegram.TelegramError) as e:
         return {"ok": False, "message": str(e)}
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Неизвестная интеграция")
+
+
+@router.get("/bschek/units")
+async def bschek_units():
+    """Единицы bschekbot (оператор × округ × Белый список) — для выбора в настройках."""
+    from app.checkers.bschek import BschekChecker, BschekError
+
+    try:
+        units = await BschekChecker(get_http()).units()
+    except BschekError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    return [
+        {k: u.get(k) for k in ("op_key", "operator", "name", "region", "dpi", "channel_state", "probeable")}
+        for u in units
+    ]

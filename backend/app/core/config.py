@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     # --- Чекеры ---
     latencylab_url: str = "https://console.latencylab.ru"
     latencylab_token: str = ""
+    bschek_url: str = "https://bsbord.com/v1"
+    bschek_token: str = ""
 
     # --- Прочее ---
     http_timeout: float = 20.0
