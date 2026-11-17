@@ -5,6 +5,9 @@ import { IconCheck, IconX } from './Icons.jsx';
 import Spinner from './Spinner.jsx';
 import { useToast } from './Toast.jsx';
 
+// необязательные поля — без них интеграция всё равно считается настроенной
+const OPTIONAL = ['remnawave_api_key', 'cloudflare_account_id'];
+
 const SOURCE_LABEL = {
   panel: { text: 'из панели', tone: 'ok' },
   env: { text: 'из .env', tone: 'muted' },
@@ -17,7 +20,7 @@ function IntegrationCard({ group, title, fields, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [test, setTest] = useState(null); // {ok, message} | 'loading'
 
-  const configured = fields.every((f) => f.is_set || f.key === 'remnawave_api_key');
+  const configured = fields.every((f) => f.is_set || OPTIONAL.includes(f.key));
   const dirty = Object.values(draft).some((v) => v !== undefined);
 
   const save = async (values) => {

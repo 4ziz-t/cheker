@@ -52,8 +52,11 @@ cheker/
 
 Все токены ниже можно ввести в панели («Настройки → Интеграции») после первого входа. Там же есть кнопка «Проверить» для каждой интеграции. В `.env` обязательны только `APP_PASSWORD` и `PANEL_DOMAIN`.
 
-1. **Cloudflare.** My Profile → API Tokens → Create Token → Custom token. Нужны права:
-   `Zone → Zone → Read` и `Zone → DNS → Edit` для нужных зон.
+1. **Cloudflare.** Подходят оба вида токенов:
+   - **токен пользователя:** My Profile → API Tokens → Create Token → Custom token;
+   - **токен аккаунта (`cfat_…`):** Manage Account → Account API Tokens. Для него в «Настройки → Интеграции → Cloudflare» укажите ещё **Account ID**: он показывается при создании токена и справа на странице домена.
+
+   Права токена: `Zone → Zone → Read` и `Zone → DNS → Edit` для нужных зон. Токен, созданный на странице R2, по умолчанию имеет только права R2: DNS он менять не сможет, и кнопка «Проверить» это покажет («не видит ни одной зоны").
    При каждой смене IP Cheker ставит у A-записи **серое облако** (proxied = false), даже если до этого было оранжевое.
 2. **Remnawave.** В панели: Настройки → API Tokens → создать токен. Нужны URL панели и токен.
 3. **Latency Lab.** Войдите на https://latencylab.ru/account.html через Telegram и создайте API-ключ (`ll_…`). Укажите его в «Настройки → Интеграции → Latency Lab».

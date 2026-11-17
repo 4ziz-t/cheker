@@ -1,4 +1,11 @@
-"""Работа с DNS Cloudflare (API Token с правами Zone:Read + DNS:Edit)."""
+"""Работа с DNS Cloudflare.
+
+Поддерживаются оба вида API-токенов:
+  • токен пользователя (My Profile → API Tokens) — проверяется через /user/tokens/verify;
+  • токен аккаунта (cfat_…, Manage Account → API Tokens) — проверяется через
+    /accounts/{account_id}/tokens/verify, поэтому для него нужен Account ID.
+Для работы с DNS токену нужны права Zone → Zone → Read и Zone → DNS → Edit.
+"""
 from dataclasses import dataclass
 
 import httpx
@@ -25,7 +32,12 @@ class DnsRecord:
 class CloudflareClient:
     def __init__(self, client: httpx.AsyncClient | None = None):
         self.client = client or get_http()
-        self.token = integrations.get("cloudflare_api_token")
+        self.token = integrations.get("cloudflare_api_token").strip()
+        self.account_id = integrations.get("cloudflare_account_id").strip()
+
+    @property
+    def is_account_token(self) -> bool:
+        return self.token.startswith("cfat_") or bool(self.account_id)
 
     async def _request(self, method: str, path: str, **kwargs) -> dict:
         if not self.token:
@@ -50,10 +62,16 @@ class CloudflareClient:
         parts = domain.strip(".").split(".")
         for i in range(len(parts) - 1):
             candidate = ".".join(parts[i:])
-            data = await self._request("GET", "/zones", params={"name": candidate})
+            params = {"name": candidate}
+            if self.account_id:
+                params["account.id"] = self.account_id
+            data = await self._request("GET", "/zones", params=params)
             if data.get("result"):
                 return data["result"][0]["id"]
-        raise CloudflareError(f"Зона для {domain} не найдена в аккаунте Cloudflare (проверьте права токена)")
+        raise CloudflareError(
+            f"Зона для {domain} не найдена. Проверьте, что домен в этом аккаунте Cloudflare и у токена есть "
+            f"права Zone → Zone → Read и Zone → DNS → Edit для этой зоны"
+        )
 
     async def get_a_records(self, zone_id: str, name: str) -> list[DnsRecord]:
         data = await self._request(
@@ -81,6 +99,49 @@ class CloudflareClient:
         r = data["result"]
         return DnsRecord(r["id"], r["name"], r["content"], bool(r.get("proxied")), int(r.get("ttl", 1)))
 
-    async def verify_token(self) -> bool:
-        await self._request("GET", "/user/tokens/verify")
-        return True
+    async def _account_ids(self) -> list[str]:
+        if self.account_id:
+            return [self.account_id]
+        try:
+            data = await self._request("GET", "/accounts", params={"per_page": 50})
+            return [a["id"] for a in data.get("result", []) if a.get("id")]
+        except CloudflareError:
+            return []
+
+    async def verify_token(self) -> str:
+        """Проверяет токен и права. Возвращает текст для панели."""
+        verified = False
+        errors: list[str] = []
+        if not self.token.startswith("cfat_"):
+            try:
+                await self._request("GET", "/user/tokens/verify")
+                verified = True
+            except CloudflareError as e:
+                errors.append(str(e))
+        if not verified:
+            ids = await self._account_ids()
+            if not ids:
+                raise CloudflareError(
+                    "Это токен аккаунта (cfat_…) — укажите Account ID в настройках Cloudflare"
+                    if self.token.startswith("cfat_") else (errors[0] if errors else "Токен не прошёл проверку")
+                )
+            for acc in ids:
+                try:
+                    await self._request("GET", f"/accounts/{acc}/tokens/verify")
+                    verified = True
+                    break
+                except CloudflareError as e:
+                    errors.append(str(e))
+            if not verified:
+                raise CloudflareError(errors[-1])
+
+        # какие зоны видит токен (нужно право Zone:Read)
+        params: dict = {"per_page": 50}
+        if self.account_id:
+            params["account.id"] = self.account_id
+        zones = (await self._request("GET", "/zones", params=params)).get("result", [])
+        if not zones:
+            return ("Токен действителен, но не видит ни одной зоны — добавьте права "
+                    "Zone → Zone → Read и Zone → DNS → Edit")
+        names = ", ".join(z["name"] for z in zones[:5]) + (" …" if len(zones) > 5 else "")
+        return f"Токен действителен, зон: {len(zones)} ({names})"

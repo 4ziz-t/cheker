@@ -26,6 +26,21 @@ MAX_WAIT = 300.0          # сколько всего ждём результа�
 _lock = asyncio.Lock()    # лимиты у bsbord на аккаунт — шлём по одному
 
 
+def derive_dpi(units: list[str], fallback: str) -> str:
+    """Режим Белого списка по самим ключам: если у каждого ключа явно указано on/off —
+    берём их (оба → any). Иначе — значение из настроек."""
+    states = set()
+    for key in units:
+        parts = key.split("|")
+        state = parts[2].strip().lower() if len(parts) == 3 else ""
+        if state not in ("on", "off"):
+            return fallback
+        states.add(state)
+    if not states:
+        return fallback
+    return states.pop() if len(states) == 1 else "any"
+
+
 class BschekError(Exception):
     def __init__(self, status: int, code: str, message: str, details: dict | None = None):
         super().__init__(f"HTTP {status} {code}: {message}")
@@ -103,7 +118,7 @@ class BschekChecker(BaseChecker):
             return CheckResult(self.name, None, error="Не задан API-ключ bschekbot (Настройки → Интеграции)")
         port = int(port or self.options.get("tcp_check_port") or 443)
         units = list(self.options.get("bschek_units") or DEFAULT_UNITS)
-        dpi = self.options.get("bschek_dpi") or "off"
+        dpi = derive_dpi(units, self.options.get("bschek_dpi") or "off")
         fail_ratio = float(self.options.get("bschek_fail_percent", 50)) / 100
 
         payload = {

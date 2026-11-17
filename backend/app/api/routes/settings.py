@@ -108,8 +108,8 @@ async def test_integration(group: str):
             nodes = await RemnawaveClient().get_nodes()
             return {"ok": True, "message": f"Подключено, нод в панели: {len(nodes)}"}
         if group == "cloudflare":
-            await CloudflareClient().verify_token()
-            return {"ok": True, "message": "Токен действителен"}
+            message = await CloudflareClient().verify_token()
+            return {"ok": "не видит ни одной зоны" not in message, "message": message}
         if group == "telegram":
             await telegram.send_message("✅ <b>Тестовое уведомление</b>\nCheker на связи.")
             return {"ok": True, "message": "Сообщение отправлено"}

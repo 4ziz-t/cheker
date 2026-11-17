@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     # --- Cloudflare ---
     cloudflare_api_token: str = ""
+    cloudflare_account_id: str = ""   # нужен для токенов аккаунта (cfat_…)
 
     # --- Telegram ---
     telegram_bot_token: str = ""
