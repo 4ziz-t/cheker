@@ -218,6 +218,7 @@ class InvestigationOut(ORM):
 # ------------------------------------------------------------ settings
 class SettingsUpdate(BaseModel):
     node_poll_interval_seconds: int | None = Field(None, ge=10, le=3600)
+    node_offline_confirm_polls: int | None = Field(None, ge=1, le=60)
     auto_import_nodes: bool | None = None
     speed_drop_percent: int | None = Field(None, ge=10, le=100)
     speed_window_minutes: int | None = Field(None, ge=1, le=60)

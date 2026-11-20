@@ -26,6 +26,8 @@ class Node(Base):
     last_status_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     offline_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # уже отправлено «нода offline» и ещё не было «снова online» — повторно не шлём
+    alert_offline: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     # скорость (байт/с): текущая (среднее за окно) и «норма» (среднее за последние часы)
     speed_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)

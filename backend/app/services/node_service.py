@@ -64,6 +64,8 @@ async def _import_addresses(db: AsyncSession, remote: list[RemnaNode]) -> None:
 
 
 REALTIME_RECHECK_SEC = 3600
+# uuid → (состояние up/down, сколько опросов подряд)
+_streak: dict[str, tuple[str, int]] = {}
 # ноды, по текущему падению скорости которых уже приняты меры (сбрасывается, когда скорость вернулась)
 _drop_handled: set[str] = set()
 
@@ -147,6 +149,7 @@ async def poll_nodes() -> bool:
 
         existing = {n.uuid: n for n in (await db.execute(select(Node))).scalars().all()}
         now = utcnow()
+        confirm = max(int(await settings_service.get(db, "node_offline_confirm_polls")), 1)
         notifications: list[tuple[str, Node]] = []
 
         for rn in remote:
@@ -155,7 +158,6 @@ async def poll_nodes() -> bool:
             if is_new:
                 n = Node(uuid=rn.uuid)
                 db.add(n)
-            prev_connected = n.is_connected
 
             n.name, n.address, n.port = rn.name, rn.address, rn.port
             n.country_code = rn.country_code
@@ -165,16 +167,35 @@ async def poll_nodes() -> bool:
             n.updated_at = now
 
             if rn.is_disabled:
+                # отключили вручную в панели — это не авария
                 n.offline_since = None
+                n.alert_offline = False
+                _streak.pop(rn.uuid, None)
                 continue
-            if not rn.is_connected and (is_new or prev_connected):
-                n.offline_since = now
-                notifications.append(("offline", n))
-            elif rn.is_connected and not prev_connected and not is_new:
-                notifications.append(("online", n))
+
+            # сколько опросов подряд нода в одном состоянии (защита от «мигания» статуса)
+            state = "up" if rn.is_connected else "down"
+            prev_state, count = _streak.get(rn.uuid, (state, 0))
+            count = count + 1 if prev_state == state else 1
+            _streak[rn.uuid] = (state, count)
+
+            if state == "down":
+                if n.offline_since is None:
+                    n.offline_since = now
+                if not n.alert_offline and count >= confirm:
+                    n.alert_offline = True
+                    notifications.append(("offline", n))
+            else:
+                if n.alert_offline and count >= confirm:
+                    n.alert_offline = False
+                    notifications.append(("online", n))
+                elif not n.alert_offline:
+                    n.offline_since = None  # короткий сбой без уведомления
 
         remote_ids = {rn.uuid for rn in remote}
         gone = [uuid for uuid in existing if uuid not in remote_ids]
+        for uuid in gone:
+            _streak.pop(uuid, None)
         if gone:
             await db.execute(delete(Node).where(Node.uuid.in_(gone)))
         await db.commit()

@@ -29,6 +29,7 @@ EVENT_TYPES: dict[str, str] = {
 DEFAULTS: dict[str, Any] = {
     # --- ноды и скорость ---
     "node_poll_interval_seconds": 60,
+    "node_offline_confirm_polls": 2,   # «offline»/«online» — только если состояние держится N опросов подряд
     "auto_import_nodes": True,
     "speed_drop_percent": 70,          # скорость упала на X% от нормы
     "speed_window_minutes": 5,         # текущая скорость = среднее за N минут

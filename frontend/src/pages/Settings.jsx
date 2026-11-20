@@ -285,6 +285,15 @@ export default function Settings({ onLogout }) {
                 onChange={(v) => set('node_poll_interval_seconds', v)}
                 hint="Статус и скорость нод обновляются с этим интервалом"
               />
+              <NumberField
+                label="«Offline» / «снова online» — если держится"
+                suffix="опросов подряд"
+                min={1}
+                max={60}
+                value={form.node_offline_confirm_polls}
+                onChange={(v) => set('node_offline_confirm_polls', v)}
+                hint="Уведомление «нода offline» приходит один раз, следующее — когда нода снова online. Защита от коротких сбоев"
+              />
               <Toggle
                 checked={form.auto_import_nodes}
                 onChange={(v) => set('auto_import_nodes', v)}
