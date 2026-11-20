@@ -45,6 +45,7 @@ def _status() -> dict:
             "last_duration": cycle_state.last_duration,
         },
         "nodes_next_poll_at": _ts(scheduler.next_node_poll),
+        "unlinked_next_check_at": _ts(scheduler.next_unlinked_check),
         "timezone": s.tz,
     }
 

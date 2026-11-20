@@ -95,17 +95,24 @@ async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
             # падение у лежащей ноды — это не «бан», о нём и так придёт «нода offline»
             tracker.forget(rn.uuid)
             _drop_handled.discard(rn.uuid)
-            n.speed_bps = n.baseline_bps = None
+            n.speed_bps = n.baseline_bps = n.speed_now_bps = None
             n.speed_drop_since = None
             continue
         if speeds is not None and rn.uuid in speeds:
             tracker.add_speed(rn.uuid, speeds[rn.uuid], ts)
+            n.speed_source = "realtime"
         elif rn.traffic_used_bytes is not None:
             tracker.add_counter(rn.uuid, rn.traffic_used_bytes, ts)
+            n.speed_source = "counter"
+        else:
+            n.speed_source = None
 
         info = tracker.info(rn.uuid, int(cfg["speed_window_minutes"]), int(cfg["speed_baseline_hours"]), ts)
         n.speed_bps = int(info.current_bps) if info.current_bps is not None else None
         n.baseline_bps = int(info.baseline_bps) if info.baseline_bps is not None else None
+        n.speed_now_bps = int(info.now_bps) if info.now_bps is not None else None
+        if speeds is not None and rn.uuid in speeds:
+            n.speed_now_bps = int(speeds[rn.uuid])  # realtime — самое точное «сейчас»
 
         dropped = (
             info.current_bps is not None and info.baseline_bps is not None

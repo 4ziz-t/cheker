@@ -40,6 +40,9 @@ DEFAULTS: dict[str, Any] = {
     "investigation_interval_minutes": 30,
     "investigation_cooldown_minutes": 180,  # после завершения не начинать новую N минут
     "auto_switch_enabled": True,
+    # --- периодическая проверка доменов/IP без привязанной ноды ---
+    "unlinked_check_enabled": False,
+    "unlinked_check_interval_minutes": 60,
     "tcp_check_port": 443,
     "latencylab_fail_percent": 50,     # запасной вариант, если wire не пришёл
     "bschek_units": [],                # единицы bschekbot: оператор|округ|БС; пусто — выберите в настройках

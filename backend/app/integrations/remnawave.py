@@ -1,4 +1,8 @@
-"""Клиент API панели Remnawave."""
+"""Клиент API панели Remnawave — ТОЛЬКО ЧТЕНИЕ.
+
+Cheker ничего не меняет в Remnawave: клиент умеет делать только GET-запросы
+(список нод и статистика скорости). Любой другой метод запрещён в _request.
+"""
 from dataclasses import dataclass
 from typing import Any
 
@@ -71,6 +75,8 @@ class RemnawaveClient:
             self.headers["X-Api-Key"] = api_key
 
     async def _request(self, method: str, path: str) -> Any:
+        if method.upper() != "GET":
+            raise RemnawaveError("Cheker работает с Remnawave только на чтение")
         if not self.base or not integrations.get("remnawave_token"):
             raise RemnawaveError("Remnawave не настроен: укажите URL и токен в Настройках")
         try:
@@ -95,15 +101,6 @@ class RemnawaveClient:
         if isinstance(data, dict):  # на случай обёртки вида {"nodes": [...]}
             data = data.get("nodes", [])
         return [RemnaNode.from_api(n) for n in data]
-
-    async def restart_node(self, uuid: str) -> None:
-        await self._request("POST", f"/api/nodes/{uuid}/actions/restart")
-
-    async def enable_node(self, uuid: str) -> None:
-        await self._request("POST", f"/api/nodes/{uuid}/actions/enable")
-
-    async def disable_node(self, uuid: str) -> None:
-        await self._request("POST", f"/api/nodes/{uuid}/actions/disable")
 
     async def get_realtime_speeds(self) -> dict[str, int] | None:
         """Скорость нод (байт/с) из realtime-статистики панели.

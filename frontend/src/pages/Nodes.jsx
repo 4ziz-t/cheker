@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { nodesApi } from '../api/index.js';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
-import { IconPower, IconRefresh, IconSearch } from '../components/Icons.jsx';
-import { ConfirmModal } from '../components/Modal.jsx';
+import { IconRefresh, IconSearch } from '../components/Icons.jsx';
 import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -25,11 +24,6 @@ const FILTERS = [
   { key: 'disabled', label: 'Отключённые' },
 ];
 
-const ACTION_TEXT = {
-  restart: { title: 'Перезапустить ноду', confirm: 'Перезапустить', done: 'Нода перезапускается' },
-  enable: { title: 'Включить ноду', confirm: 'Включить', done: 'Нода включена' },
-  disable: { title: 'Отключить ноду', confirm: 'Отключить', done: 'Нода отключена' },
-};
 
 export default function Nodes() {
   const toast = useToast();
@@ -37,8 +31,6 @@ export default function Nodes() {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const [confirm, setConfirm] = useState(null); // {node, action}
-  const [busy, setBusy] = useState(false);
 
   const counts = useMemo(() => {
     const c = { all: 0, online: 0, offline: 0, disabled: 0 };
@@ -71,19 +63,6 @@ export default function Nodes() {
     }
   };
 
-  const doAction = async () => {
-    setBusy(true);
-    try {
-      await nodesApi.action(confirm.node.uuid, confirm.action);
-      toast.success(ACTION_TEXT[confirm.action].done);
-      setConfirm(null);
-      setTimeout(refresh, 2000);
-    } catch (e) {
-      toast.error(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <div className="page">
@@ -153,20 +132,36 @@ export default function Nodes() {
                   {n.port ? `:${n.port}` : ''}
                 </div>
 
-                {st.key === 'online' && (
+                {st.key !== 'disabled' && (
                   <div className={`node-speed ${n.speed_drop_since ? 'is-drop' : ''}`}>
-                    <div>
-                      <span className="muted small">Скорость</span>
-                      <b>{formatSpeed(n.speed_bps)}</b>
-                    </div>
-                    <div>
-                      <span className="muted small">Норма</span>
-                      <span>{n.baseline_bps === null ? 'набирается…' : formatSpeed(n.baseline_bps)}</span>
-                    </div>
-                    {n.speed_drop_since && (
-                      <span className="node-speed__flag">↓ падение {formatDuration(n.speed_drop_since)}</span>
+                    {st.key === 'online' ? (
+                      <>
+                        <div>
+                          <span className="muted small">Сейчас</span>
+                          <b>{n.speed_now_bps == null ? '…' : formatSpeed(n.speed_now_bps)}</b>
+                        </div>
+                        <div>
+                          <span className="muted small">Среднее</span>
+                          <span>{n.speed_bps == null ? 'считается…' : formatSpeed(n.speed_bps)}</span>
+                        </div>
+                        <div>
+                          <span className="muted small">Норма</span>
+                          <span>{n.baseline_bps == null ? 'набирается…' : formatSpeed(n.baseline_bps)}</span>
+                        </div>
+                        {n.speed_drop_since && (
+                          <span className="node-speed__flag">↓ падение {formatDuration(n.speed_drop_since)}</span>
+                        )}
+                      </>
+                    ) : (
+                      <div>
+                        <span className="muted small">Скорость</span>
+                        <b className="text-bad">0 — нода offline</b>
+                      </div>
                     )}
                   </div>
+                )}
+                {st.key === 'online' && !n.speed_source && (
+                  <p className="field__hint">Remnawave не отдаёт трафик этой ноды — скорость посчитать нельзя</p>
                 )}
 
                 <dl className="node-card__meta">
@@ -199,46 +194,12 @@ export default function Nodes() {
                   <p className="node-card__msg">{n.last_status_message}</p>
                 )}
 
-                <div className="node-card__actions">
-                  <button
-                    type="button"
-                    className="btn btn--sm btn--ghost"
-                    disabled={n.is_disabled}
-                    onClick={() => setConfirm({ node: n, action: 'restart' })}
-                  >
-                    <IconRefresh size={16} />
-                    <span>Рестарт</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn btn--sm btn--ghost ${n.is_disabled ? '' : 'btn--danger-text'}`}
-                    onClick={() => setConfirm({ node: n, action: n.is_disabled ? 'enable' : 'disable' })}
-                  >
-                    <IconPower size={16} />
-                    <span>{n.is_disabled ? 'Включить' : 'Отключить'}</span>
-                  </button>
-                </div>
               </article>
             );
           })}
         </div>
       )}
 
-      {confirm && (
-        <ConfirmModal
-          title={ACTION_TEXT[confirm.action].title}
-          text={
-            <>
-              {ACTION_TEXT[confirm.action].title} <b>{confirm.node.name}</b> ({confirm.node.address})?
-            </>
-          }
-          confirmText={ACTION_TEXT[confirm.action].confirm}
-          danger={confirm.action === 'disable'}
-          busy={busy}
-          onConfirm={doAction}
-          onClose={() => setConfirm(null)}
-        />
-      )}
     </div>
   );
 }

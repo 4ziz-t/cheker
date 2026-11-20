@@ -29,6 +29,8 @@ class Node(Base):
 
     # скорость (байт/с): текущая (среднее за окно) и «норма» (среднее за последние часы)
     speed_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    speed_now_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    speed_source: Mapped[str | None] = mapped_column(String(16), nullable=True)  # realtime | counter
     baseline_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
     speed_drop_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

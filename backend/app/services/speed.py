@@ -21,6 +21,7 @@ MIN_BASELINE_COVERAGE_SEC = 30 * 60
 class SpeedInfo:
     current_bps: float | None
     baseline_bps: float | None
+    now_bps: float | None = None   # между двумя последними опросами
 
 
 class SpeedTracker:
@@ -84,6 +85,8 @@ class SpeedTracker:
         if not series or len(series) < 2:
             return SpeedInfo(None, None)
         end = series[-1]
+        prev = series[-2]
+        now_bps = (end[1] - prev[1]) / (end[0] - prev[0]) if end[0] > prev[0] else None
         window_start = self._at(series, now - window_min * 60)
         current = None
         if window_start and end[0] - window_start[0] >= window_min * 60 * 0.8:
@@ -95,7 +98,7 @@ class SpeedTracker:
             span = window_start[0] - base_start[0]
             if span >= min(MIN_BASELINE_COVERAGE_SEC, baseline_hours * 3600):
                 baseline = (window_start[1] - base_start[1]) / span
-        return SpeedInfo(current, baseline)
+        return SpeedInfo(current, baseline, now_bps)
 
 
 tracker = SpeedTracker()

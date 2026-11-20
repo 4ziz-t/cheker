@@ -302,3 +302,20 @@
     font-size: 22px;
   }
 }
+
+/* ---------- автопроверка доменов без ноды ---------- */
+.unlinked {
+  gap: 12px;
+}
+.unlinked__settings {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.unlinked__settings .input {
+  max-width: 120px;
+}

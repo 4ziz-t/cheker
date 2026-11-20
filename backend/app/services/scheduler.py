@@ -11,6 +11,7 @@ from app.core.database import SessionLocal
 from app.core.timeutils import local_tz, utcnow
 from app.models import Event, UserSession
 from app.services import investigation_service, settings_service
+from app.services.domain_service import run_cycle, unlinked_domain_ids
 from app.services.node_service import poll_nodes
 from app.services.summary import send_summary
 
@@ -21,12 +22,15 @@ class Scheduler:
     def __init__(self) -> None:
         self._tasks: list[asyncio.Task] = []
         self._wake_investigations = asyncio.Event()
+        self._wake_unlinked = asyncio.Event()
+        self.next_unlinked_check: float | None = None
         self._wake_nodes = asyncio.Event()
         self.next_node_poll: float | None = None
 
     def start(self) -> None:
         self._tasks = [
             asyncio.create_task(self._investigations_loop(), name="investigations"),
+            asyncio.create_task(self._unlinked_loop(), name="unlinked"),
             asyncio.create_task(self._summary_loop(), name="summary"),
         ]
         self._tasks.append(asyncio.create_task(self._nodes_loop(), name="nodes"))
@@ -38,6 +42,7 @@ class Scheduler:
 
     def wake(self) -> None:
         """Пересчитать расписание (после изменения настроек)."""
+        self._wake_unlinked.set()
         self._wake_nodes.set()
 
     async def _sleep_or_wake(self, event: asyncio.Event, seconds: float) -> bool:
@@ -61,6 +66,36 @@ class Scheduler:
 
     def wake_investigations(self) -> None:
         self._wake_investigations.set()
+
+    async def _unlinked_loop(self) -> None:
+        """Проверка доменов/IP, к которым не привязана ни одна нода (если включено)."""
+        await asyncio.sleep(15)
+        while True:
+            try:
+                await self._unlinked_tick()
+            except Exception:  # noqa: BLE001
+                log.exception("Ошибка проверки доменов без ноды")
+            await self._sleep_or_wake(self._wake_unlinked, 30)
+
+    async def _unlinked_tick(self) -> None:
+        async with SessionLocal() as db:
+            cfg = await settings_service.get_all(db)
+            if not cfg["unlinked_check_enabled"]:
+                self.next_unlinked_check = None
+                return
+            interval = int(cfg["unlinked_check_interval_minutes"]) * 60
+            last = float(await settings_service.get_state(db, "last_unlinked_check", 0) or 0)
+            due = last + interval
+            self.next_unlinked_check = due
+            if time.time() < due:
+                return
+            ids = await unlinked_domain_ids(db)
+            await settings_service.set_state(db, "last_unlinked_check", time.time())
+            await db.commit()
+        self.next_unlinked_check = time.time() + interval
+        if ids:
+            log.info("Проверка доменов без ноды: %d шт.", len(ids))
+            await run_cycle(ids)
 
     async def _nodes_loop(self) -> None:
         await asyncio.sleep(2)

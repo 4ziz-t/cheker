@@ -8,6 +8,7 @@ import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
 import Toggle from '../components/Toggle.jsx';
+import UnlinkedCheckPanel from '../components/UnlinkedCheckPanel.jsx';
 import usePolling from '../hooks/usePolling.js';
 import { DOMAIN_STATUS, formatRelative, ipState } from '../utils/format.js';
 import '../styles/domains.css';
@@ -75,6 +76,8 @@ export default function Domains() {
         }
       />
 
+      {data && <UnlinkedCheckPanel unlinkedCount={data.filter((d) => d.enabled && !d.nodes.length).length} />}
+
       <div className="toolbar">
         <div className="search">
           <IconSearch size={18} />
@@ -131,12 +134,19 @@ export default function Domains() {
                   {d.enabled ? <DomainStatusBadge status={d.status} /> : <span className="muted">Выключен</span>}
                 </div>
 
-                {(d.kind === 'ip' || d.source === 'remnawave') && (
-                  <div className="domain-card__tags">
-                    {d.kind === 'ip' && <span className="tag">IP-адрес</span>}
-                    {d.source === 'remnawave' && <span className="tag tag--muted">из Remnawave</span>}
-                  </div>
-                )}
+                <div className="domain-card__tags">
+                  {d.kind === 'ip' && <span className="tag">IP-адрес</span>}
+                  {d.source === 'remnawave' && <span className="tag tag--muted">из Remnawave</span>}
+                  {d.nodes.length ? (
+                    <span className="tag tag--muted" title="Проверяется при падении скорости ноды">
+                      нода: {d.nodes.join(', ')}
+                    </span>
+                  ) : (
+                    <span className="tag tag--warn" title="Проверяется только автопроверкой без ноды или вручную">
+                      без ноды
+                    </span>
+                  )}
+                </div>
 
                 <div className="domain-card__ip">
                   <span className="muted">Текущий IP</span>

@@ -29,7 +29,6 @@ export const domainsApi = {
 export const nodesApi = {
   list: () => api.get('/nodes'),
   refresh: () => api.post('/nodes/refresh'),
-  action: (uuid, action) => api.post(`/nodes/${uuid}/${action}`),
 };
 
 export const eventsApi = {

@@ -111,8 +111,8 @@ async def test_integration(group: str):
             message = await CloudflareClient().verify_token()
             return {"ok": "не видит ни одной зоны" not in message, "message": message}
         if group == "telegram":
-            await telegram.send_message("✅ <b>Тестовое уведомление</b>\nCheker на связи.")
-            return {"ok": True, "message": "Сообщение отправлено"}
+            n = await telegram.send_message("✅ <b>Тестовое уведомление</b>\nCheker на связи.")
+            return {"ok": True, "message": f"Отправлено получателям: {n}"}
         if group in ("latencylab", "bschek"):
             msg = await all_checkers()[group](get_http()).status()
             ok = bool(msg) and not msg.startswith(("Ошибка", "Ключ не задан", "Токен не задан", "Не удалось"))

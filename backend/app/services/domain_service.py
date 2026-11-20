@@ -407,6 +407,17 @@ async def _safe_switch(db: AsyncSession, domain: Domain, ip: str, reason: str) -
 
 # ---------------------------------------------------------------- цикл
 
+async def unlinked_domain_ids(db: AsyncSession) -> list[int]:
+    """Включённые домены/IP, адрес которых не совпадает ни с одной нодой Remnawave."""
+    from app.models import Node  # локальный импорт, чтобы не было цикла моделей
+
+    addresses = {
+        (a or "").strip().lower().rstrip(".")
+        for a in (await db.execute(select(Node.address))).scalars().all()
+    }
+    rows = (await db.execute(select(Domain.id, Domain.name).where(Domain.enabled.is_(True)))).all()
+    return [i for i, name in rows if name not in addresses]
+
 async def run_cycle(domain_ids: list[int] | None = None) -> bool:
     """Полная проверка доменов. Возвращает False, если цикл уже идёт."""
     if domain_ids is None and _cycle_lock.locked():

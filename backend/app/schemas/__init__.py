@@ -159,6 +159,8 @@ class NodeOut(ORM):
     offline_since: UTCDatetime | None
     updated_at: UTCDatetime
     speed_bps: int | None = None
+    speed_now_bps: int | None = None
+    speed_source: str | None = None
     baseline_bps: int | None = None
     speed_drop_since: UTCDatetime | None = None
     domain_id: int | None = None
@@ -226,6 +228,8 @@ class SettingsUpdate(BaseModel):
     investigation_interval_minutes: int | None = Field(None, ge=1, le=720)
     investigation_cooldown_minutes: int | None = Field(None, ge=0, le=10080)
     auto_switch_enabled: bool | None = None
+    unlinked_check_enabled: bool | None = None
+    unlinked_check_interval_minutes: int | None = Field(None, ge=5, le=10080)
     tcp_check_port: int | None = Field(None, ge=1, le=65535)
     latencylab_fail_percent: int | None = Field(None, ge=1, le=100)
     bschek_units: list[str] | None = None
