@@ -334,6 +334,18 @@ async def handle_current_banned(db: AsyncSession, domain: Domain, cache: IPCheck
     if not auto:
         await _set_status(db, domain, DomainStatus.BLOCKED, "Текущий IP в бане, автосмена выключена")
         return None
+    # нет резервных IP — менять не на что, в Cloudflare не идём
+    if not any(e.ip != domain.current_ip for e in domain.ips):
+        if not domain.no_ips_alerted:
+            domain.no_ips_alerted = True
+            await record(
+                db, "no_available_ips", "Нет резервных IP",
+                f"{domain.name}: текущий {domain.current_ip} в бане, а других IP в списке домена нет. "
+                f"Добавьте резервные IP — тогда Cheker сменит A-запись сам.",
+                level="error", domain=domain.name, emoji="🆘",
+            )
+        await _set_status(db, domain, DomainStatus.NO_IPS, "IP в бане, резервных IP в списке нет")
+        return None
     if not integrations.cloudflare_configured():
         await _set_status(db, domain, DomainStatus.BLOCKED, "IP в бане, но Cloudflare не настроен — сменить нечем")
         return None
