@@ -71,6 +71,9 @@ REALTIME_RECHECK_SEC = 3600
 _streak: dict[str, tuple[str, int]] = {}
 # ноды, по текущему падению скорости которых уже приняты меры (сбрасывается, когда скорость вернулась)
 _drop_handled: set[str] = set()
+# uuid → сколько опросов подряд ноды нет в ответе Remnawave
+_missing: dict[str, int] = {}
+GONE_CONFIRM_POLLS = 3
 
 
 async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
@@ -260,9 +263,22 @@ async def poll_nodes(sync: bool = False) -> int | None:
                 elif not n.alert_offline:
                     n.offline_since = None  # короткий сбой без уведомления
 
-        remote_ids = {rn.uuid for rn in remote}
-        gone = [uuid for uuid in existing if uuid not in remote_ids]
+        # ноду удаляем из списка, только если её нет в ответе Remnawave несколько опросов подряд:
+        # панель иногда отдаёт неполный/пустой список, и тогда все ноды «пропадали»
+        remote_ids = {rn.uuid for rn in remote_all}
+        gone = []
+        if remote_all:
+            for uuid in existing:
+                if uuid in remote_ids or uuid in hidden:
+                    _missing.pop(uuid, None)
+                    continue
+                _missing[uuid] = _missing.get(uuid, 0) + 1
+                if _missing[uuid] >= GONE_CONFIRM_POLLS:
+                    gone.append(uuid)
+        elif existing:
+            log.warning("Remnawave вернул пустой список нод — список в Cheker не трогаю")
         for uuid in gone:
+            _missing.pop(uuid, None)
             _streak.pop(uuid, None)
             tracker.forget(uuid)
         if gone:

@@ -10,18 +10,32 @@ export default function usePolling(loader, intervalMs = 0, deps = []) {
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
 
+  // номер последнего запроса: ответ, пришедший позже более нового, отбрасываем
+  const seqRef = useRef(0);
+
   const reload = useCallback(async () => {
+    const seq = ++seqRef.current;
     try {
       const result = await loaderRef.current();
-      setData(result);
-      setError(null);
+      if (seq === seqRef.current) {
+        setData(result);
+        setError(null);
+      }
       return result;
     } catch (e) {
-      setError(e);
+      if (seq === seqRef.current) setError(e);
       return null;
     } finally {
-      setLoading(false);
+      if (seq === seqRef.current) setLoading(false);
     }
+  }, []);
+
+  // ручная установка данных (например, после «Обновить») важнее ещё не вернувшегося опроса
+  const setDataManual = useCallback((value) => {
+    seqRef.current += 1;
+    setData(value);
+    setError(null);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -42,5 +56,5 @@ export default function usePolling(loader, intervalMs = 0, deps = []) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload, intervalMs, ...deps]);
 
-  return { data, setData, error, loading, reload };
+  return { data, setData: setDataManual, error, loading, reload };
 }

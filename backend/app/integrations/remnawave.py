@@ -99,8 +99,13 @@ class RemnawaveClient:
     async def get_nodes(self) -> list[RemnaNode]:
         data = await self._request("GET", "/api/nodes")
         if isinstance(data, dict):  # на случай обёртки вида {"nodes": [...]}
-            data = data.get("nodes", [])
-        return [RemnaNode.from_api(n) for n in data]
+            data = data.get("nodes")
+        if not isinstance(data, list):
+            raise RemnawaveError("Remnawave вернул неожиданный ответ на список нод")
+        try:
+            return [RemnaNode.from_api(n) for n in data if isinstance(n, dict)]
+        except KeyError as e:
+            raise RemnawaveError(f"В ответе Remnawave у ноды нет поля {e}") from e
 
     async def get_realtime_speeds(self) -> dict[str, int] | None:
         """Скорость нод (байт/с) из realtime-статистики панели.
