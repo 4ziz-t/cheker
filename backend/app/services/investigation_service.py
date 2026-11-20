@@ -16,10 +16,8 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import integrations
 from app.core.database import SessionLocal
 from app.core.timeutils import utcnow
-from app.integrations.cloudflare import CloudflareError
 from app.models import Domain, Investigation, Node
 from app.models.domain import DomainKind, DomainStatus
 from app.models.investigation import InvestigationStatus as S
@@ -131,12 +129,11 @@ async def _step(db: AsyncSession, inv: Investigation) -> None:
 
     async with domain_service.domain_lock(domain.id):
         await db.refresh(domain)
-        # актуальная A-запись (могли сменить вручную)
-        if domain.kind == DomainKind.DOMAIN and integrations.cloudflare_configured():
-            try:
-                await domain_service.sync_dns(db, domain)
-            except (CloudflareError, domain_service.DnsConflictError) as e:
-                log.info("DNS %s: %s", domain.name, e)
+        # текущий IP — из обычного DNS (Cloudflare нужен только для смены IP при бане)
+        if domain.kind == DomainKind.DOMAIN:
+            dns_ip = await domain_service.resolve_dns(domain.name)
+            if dns_ip:
+                domain.current_ip = dns_ip
         ip = domain.name if domain.kind == DomainKind.IP else domain.current_ip
         if not ip:
             await _finish(db, inv, S.FAILED, "У домена нет текущего IP")

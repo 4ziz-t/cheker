@@ -274,64 +274,53 @@ async def process_domain(db: AsyncSession, domain: Domain, cache: IPCheckCache, 
             await _process_ip_entry(db, domain, cache)
             return
 
-        # 1. актуальная A-запись
-        if integrations.cloudflare_configured():
-            try:
-                await sync_dns(db, domain)
-                await errors.resolve(db, "cloudflare", "Cloudflare")
-            except DnsConflictError as e:
-                if domain.status_message != str(e):
-                    await record(db, "integration_error", "Конфликт DNS", f"{domain.name}: {e}",
-                                 level="error", domain=domain.name)
-                await _set_status(db, domain, DomainStatus.ERROR, str(e))
-                return
-            except CloudflareError as e:
-                domain.cf_zone_id = None
-                await errors.report(db, "cloudflare", "Cloudflare", str(e))
-                await _set_status(db, domain, DomainStatus.ERROR, f"Cloudflare: {e}")
-                return
+        # 1. Текущий IP берём без Cloudflare: сохранённый, а если его нет — из обычного DNS.
+        #    В Cloudflare идём только если IP в бане и его нужно менять.
+        dns_ip = await resolve_dns(domain.name)
+        if dns_ip:
+            domain.current_ip = dns_ip
+        if not domain.current_ip:
+            await _set_status(db, domain, DomainStatus.NO_RECORD, "Домен не резолвится — нет текущего IP")
+            return
 
         # пустой список — добавляем текущий IP домена, чтобы было что проверять
-        if not domain.ips and domain.current_ip:
+        if not domain.ips:
             domain.ips = [DomainIP(ip=domain.current_ip, position=0)]
             await db.commit()
             await db.refresh(domain)
 
-        # 2. Проверяем только текущий IP (тот, что в A-записи) — экономим запросы к чекерам.
-        #    Резервные IP проверяются, только когда нужно на что-то переключиться
-        #    (или всегда, если включено «Проверять резервные IP по расписанию»).
+        # 2. Проверяем только текущий IP — экономим запросы к источникам.
+        #    Резервные IP проверяются, только когда нужно на что-то переключиться.
         current_entry = next((e for e in domain.ips if e.ip == domain.current_ip), None)
-        current_blocked, current_error = None, None
-        if domain.current_ip:
-            res = await cache.get(domain.current_ip, domain.check_port)
-            await _report_checker_errors(db, res)
-            if current_entry is not None:
-                await _apply_result(db, domain, current_entry, res)
-            current_blocked, current_error = res.blocked, "; ".join(res.errors)
-
+        res = await cache.get(domain.current_ip, domain.check_port)
+        await _report_checker_errors(db, res)
+        if current_entry is not None:
+            await _apply_result(db, domain, current_entry, res)
         await db.commit()
 
-        auto = domain.auto_switch and global_auto
-
         # 3. решение
-        if not domain.current_ip:
-            candidate = None
-            if auto and integrations.cloudflare_configured():
-                candidate = await _find_candidate(db, domain, None, cache)
-            if candidate:
-                await _safe_switch(db, domain, candidate, "у домена не было A-записи")
-            else:
-                await _set_status(db, domain, DomainStatus.NO_RECORD, "Нет A-записи в Cloudflare")
-            return
-
-        if current_blocked is True:
+        if res.blocked is True:
+            auto = domain.auto_switch and global_auto
             await handle_current_banned(db, domain, cache, auto)
-        elif current_blocked is False:
+        elif res.blocked is False:
             domain.no_ips_alerted = False
             msg = "" if current_entry else "Текущий IP не из списка домена"
             await _set_status(db, domain, DomainStatus.OK, msg)
         else:
-            await _set_status(db, domain, DomainStatus.ERROR, f"Не удалось проверить IP: {current_error or '—'}")
+            await _set_status(db, domain, DomainStatus.ERROR,
+                              f"Не удалось проверить IP: {'; '.join(res.errors) or '—'}")
+
+
+async def resolve_dns(name: str) -> str | None:
+    """IPv4 домена через обычный DNS (без Cloudflare API)."""
+    try:
+        loop = asyncio.get_running_loop()
+        infos = await asyncio.wait_for(
+            loop.getaddrinfo(name, None, family=socket.AF_INET, type=socket.SOCK_STREAM), timeout=10
+        )
+        return infos[0][4][0] if infos else None
+    except (OSError, asyncio.TimeoutError):
+        return None
 
 
 async def handle_current_banned(db: AsyncSession, domain: Domain, cache: IPCheckCache, auto: bool) -> str | None:
@@ -345,6 +334,26 @@ async def handle_current_banned(db: AsyncSession, domain: Domain, cache: IPCheck
     if not auto:
         await _set_status(db, domain, DomainStatus.BLOCKED, "Текущий IP в бане, автосмена выключена")
         return None
+    if not integrations.cloudflare_configured():
+        await _set_status(db, domain, DomainStatus.BLOCKED, "IP в бане, но Cloudflare не настроен — сменить нечем")
+        return None
+
+    # только теперь идём в Cloudflare: сверяем A-запись перед сменой
+    banned_ip = domain.current_ip
+    try:
+        await sync_dns(db, domain)
+        await errors.resolve(db, "cloudflare", "Cloudflare")
+    except (CloudflareError, DnsConflictError) as e:
+        domain.cf_zone_id = None
+        await errors.report(db, "cloudflare", "Cloudflare", f"{domain.name}: {e}")
+        await _set_status(db, domain, DomainStatus.BLOCKED, f"IP {banned_ip} в бане, но сменить не удалось: {e}")
+        return None
+    if domain.current_ip != banned_ip:
+        # A-запись уже указывает на другой IP (сменили вручную) — проверим её в следующий раз
+        await _set_status(db, domain, DomainStatus.UNKNOWN,
+                          f"A-запись уже не {banned_ip}, а {domain.current_ip or 'пусто'} — проверьте снова")
+        return None
+
     candidate = await _find_candidate(db, domain, domain.current_ip, cache)
     if candidate:
         await _safe_switch(db, domain, candidate, f"{domain.current_ip} в бане")

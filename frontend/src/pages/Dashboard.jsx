@@ -455,7 +455,7 @@ export default function Dashboard() {
       {confirmAll && (
         <ConfirmModal
           title="Проверить все домены"
-          text="Будет проверен текущий IP каждого включённого домена — по 1 запросу Latency Lab на домен. При бане IP сменится сразу, без трёх проверок."
+          text="Будет проверен текущий IP каждого включённого домена и IP — с нодой и без. Cloudflare используется только если IP в бане и его нужно сменить. При бане IP сменится сразу, без трёх проверок."
           confirmText="Проверить"
           onConfirm={checkNow}
           onClose={() => setConfirmAll(false)}
