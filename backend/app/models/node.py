@@ -28,6 +28,8 @@ class Node(Base):
     offline_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # уже отправлено «нода offline» и ещё не было «снова online» — повторно не шлём
     alert_offline: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # адрес панели Remnawave, из которой пришла нода (после смены панели старые ноды убираются)
+    panel_url: Mapped[str] = mapped_column(String(255), default="", server_default="")
 
     # скорость (байт/с): текущая (среднее за окно) и «норма» (среднее за последние часы)
     speed_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)

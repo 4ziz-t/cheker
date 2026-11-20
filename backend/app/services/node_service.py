@@ -3,6 +3,7 @@ import asyncio
 import logging
 import time
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,8 +15,8 @@ from app.models import Domain, DomainIP, Node
 from app.models.domain import DomainSource
 from app.schemas import DOMAIN_RE, is_ipv4
 from app.services import domain_service, investigation_service, settings_service
-from app.services.speed import tracker
 from app.services.events import errors, record
+from app.services.speed import tracker
 
 log = logging.getLogger(__name__)
 _poll_lock = asyncio.Lock()
@@ -74,6 +75,14 @@ _drop_handled: set[str] = set()
 # uuid → сколько опросов подряд ноды нет в ответе Remnawave
 _missing: dict[str, int] = {}
 GONE_CONFIRM_POLLS = 3
+# опросы подряд, в которых в базе снова нашлись ноды чужой панели (признак второго экземпляра Cheker)
+_foreign_streak = 0
+FOREIGN_WARN_KEY = "foreign_nodes_warned_at"
+FOREIGN_WARN_EVERY_SEC = 6 * 3600
+
+
+def _panel_host(url: str) -> str:
+    return urlsplit(url).netloc or url
 
 
 async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
@@ -141,6 +150,48 @@ async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
 
     for n, cur, base in triggered:
         await investigation_service.on_speed_drop(db, n, cur, base)
+
+
+async def _drop_foreign(db: AsyncSession, existing: dict[str, Node], remote_ids: set[str], panel: str) -> None:
+    """Сразу убирает ноды, которых нет в текущей панели и которые пришли из другой панели.
+
+    Так после смены панели Remnawave старые ноды не висят в списке. Если они раз за разом
+    появляются снова — в ту же базу пишет ещё один экземпляр Cheker со старыми настройками.
+    """
+    global _foreign_streak
+    if not remote_ids:
+        return  # пустой ответ панели — ничего не трогаем
+    foreign = [n for uuid, n in existing.items() if uuid not in remote_ids and (n.panel_url or "") != panel]
+    if not foreign:
+        _foreign_streak = 0
+        return
+    for n in foreign:
+        existing.pop(n.uuid, None)
+        _streak.pop(n.uuid, None)
+        _missing.pop(n.uuid, None)
+        _drop_handled.discard(n.uuid)
+        tracker.forget(n.uuid)
+        await db.delete(n)
+    await db.commit()
+    names = ", ".join(n.name for n in foreign[:10]) + (" …" if len(foreign) > 10 else "")
+    await record(db, "node_foreign", "Убраны ноды другой панели Remnawave",
+                 f"Их нет в текущей панели ({_panel_host(panel)}): {names}", level="info", notify=False)
+
+    _foreign_streak += 1
+    if _foreign_streak < 2:
+        return
+    last = float(await settings_service.get_state(db, FOREIGN_WARN_KEY, 0) or 0)
+    if time.time() - last < FOREIGN_WARN_EVERY_SEC:
+        return
+    await settings_service.set_state(db, FOREIGN_WARN_KEY, time.time())
+    await db.commit()
+    await record(
+        db, "integration_error", "Ноды старой панели появляются снова",
+        "Cheker убирает ноды, которых нет в текущей панели "
+        f"({_panel_host(panel)}), но они снова попадают в базу. Похоже, на сервере запущен ещё один "
+        "экземпляр Cheker со старыми настройками и той же папкой data. Проверьте: docker ps -a | grep cheker",
+        level="warning", emoji="⚠️",
+    )
 
 
 HIDDEN_KEY = "hidden_nodes"
@@ -220,6 +271,8 @@ async def poll_nodes(sync: bool = False) -> int | None:
 
         existing = {n.uuid: n for n in (await db.execute(select(Node))).scalars().all()}
         now = utcnow()
+        panel = RemnawaveClient().base
+        await _drop_foreign(db, existing, {rn.uuid for rn in remote_all}, panel)
         confirm = max(int(await settings_service.get(db, "node_offline_confirm_polls")), 1)
         notifications: list[tuple[str, Node]] = []
 
@@ -230,6 +283,7 @@ async def poll_nodes(sync: bool = False) -> int | None:
                 n = Node(uuid=rn.uuid)
                 db.add(n)
 
+            n.panel_url = panel
             n.name, n.address, n.port = rn.name, rn.address, rn.port
             n.country_code = rn.country_code
             n.is_connected, n.is_disabled, n.is_connecting = rn.is_connected, rn.is_disabled, rn.is_connecting

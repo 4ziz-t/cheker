@@ -12,6 +12,7 @@ router = APIRouter(prefix="/events", tags=["events"])
 EXTRA_TYPES = {
     "domain_changed": "Изменения доменов",
     "node_hidden": "Ноды, удалённые из Cheker",
+    "node_foreign": "Ноды другой панели Remnawave убраны",
     "node_action": "Действия с нодами (старые версии)",
 }
 
