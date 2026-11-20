@@ -7,7 +7,8 @@
 Обе величины сводятся к «накопленному счётчику байт», поэтому:
   текущая скорость = прирост байт за последние N минут / N минут,
   норма           = прирост байт за предыдущие M часов / M часов.
-История хранится в памяти процесса (после перезапуска норма набирается заново).
+История хранится в памяти и дублируется в SQLite (таблица speed_samples),
+поэтому после перезапуска контейнера норма не набирается заново.
 """
 import time
 from collections import deque
@@ -31,10 +32,66 @@ class SpeedTracker:
         self._mode: dict[str, str] = {}  # counter | speed — при смене источника историю сбрасываем
         self.realtime_supported: bool | None = None
         self.realtime_checked_at = 0.0
+        # изменения, ещё не записанные в базу (см. flush)
+        self._pending_add: list[tuple[str, float, float, str]] = []
+        self._pending_clear: set[str] = set()
+        self._last_prune = 0.0
+
+    # ---------- база ----------
+
+    async def load(self, db) -> int:
+        """Восстанавливает историю из базы при старте. Возвращает число точек."""
+        from sqlalchemy import delete, select
+
+        from app.models import SpeedSample
+
+        cutoff = time.time() - MAX_HISTORY_SEC
+        await db.execute(delete(SpeedSample).where(SpeedSample.ts < cutoff))
+        await db.commit()
+        rows = (await db.execute(
+            select(SpeedSample.node_uuid, SpeedSample.ts, SpeedSample.cum, SpeedSample.mode)
+            .order_by(SpeedSample.node_uuid, SpeedSample.ts)
+        )).all()
+        self._series.clear()
+        self._mode.clear()
+        for uuid, ts, cum, mode in rows:
+            if self._mode.get(uuid) != mode:  # источник менялся — берём только последний отрезок
+                self._mode[uuid] = mode
+                self._series[uuid] = deque()
+            series = self._series[uuid]
+            if series and mode == "counter" and cum < series[-1][1]:
+                series.clear()
+            series.append((ts, cum))
+        self._pending_add.clear()
+        self._pending_clear.clear()
+        return len(rows)
+
+    async def flush(self, db) -> None:
+        """Записывает накопленные изменения в базу (коммит — на вызывающем)."""
+        from sqlalchemy import delete
+
+        from app.models import SpeedSample
+
+        if self._pending_clear:
+            await db.execute(delete(SpeedSample).where(SpeedSample.node_uuid.in_(list(self._pending_clear))))
+            self._pending_clear.clear()
+        if self._pending_add:
+            db.add_all([SpeedSample(node_uuid=u, ts=t, cum=c, mode=m) for u, t, c, m in self._pending_add])
+            self._pending_add.clear()
+        now = time.time()
+        if now - self._last_prune > 600:
+            self._last_prune = now
+            await db.execute(delete(SpeedSample).where(SpeedSample.ts < now - MAX_HISTORY_SEC))
+
+    def _clear(self, uuid: str) -> None:
+        self._series.pop(uuid, None)
+        self._pending_clear.add(uuid)
+        self._pending_add = [p for p in self._pending_add if p[0] != uuid]
 
     def _push(self, uuid: str, ts: float, cum: float) -> None:
         series = self._series.setdefault(uuid, deque())
         series.append((ts, cum))
+        self._pending_add.append((uuid, ts, cum, self._mode.get(uuid, "counter")))
         while series and ts - series[0][0] > MAX_HISTORY_SEC:
             series.popleft()
 
@@ -44,7 +101,7 @@ class SpeedTracker:
         self._set_mode(uuid, "counter")
         series = self._series.get(uuid)
         if series and total_bytes < series[-1][1]:
-            series.clear()  # счётчик сбросили (например, новый месяц)
+            self._clear(uuid)  # счётчик сбросили (например, новый месяц)
         self._push(uuid, ts, float(total_bytes))
 
     def add_speed(self, uuid: str, bps: float, ts: float | None = None) -> None:
@@ -61,11 +118,14 @@ class SpeedTracker:
 
     def _set_mode(self, uuid: str, mode: str) -> None:
         if self._mode.get(uuid) != mode:
+            had_mode = uuid in self._mode
             self._mode[uuid] = mode
-            self._series.pop(uuid, None)
+            if had_mode or uuid in self._series:
+                self._clear(uuid)
 
     def forget(self, uuid: str) -> None:
-        self._series.pop(uuid, None)
+        if uuid in self._series or uuid in self._mode:
+            self._clear(uuid)
         self._mode.pop(uuid, None)
 
     @staticmethod

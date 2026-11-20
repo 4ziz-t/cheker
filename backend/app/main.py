@@ -10,6 +10,7 @@ from app.core.database import SessionLocal, init_db
 from app.core.http import close_http
 from app.services import settings_service
 from app.services.scheduler import scheduler
+from app.services.speed import tracker
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -22,6 +23,11 @@ async def lifespan(_: FastAPI):
     async with SessionLocal() as db:
         await integrations.load(db)
         await settings_service.migrate(db)
+        try:
+            points = await tracker.load(db)
+            log.info("История скорости нод: восстановлено точек — %d", points)
+        except Exception:  # без истории норма просто наберётся заново
+            log.exception("Не удалось загрузить историю скорости нод")
     for name, ok in (("Remnawave", integrations.remnawave_configured()),
                      ("Cloudflare", integrations.cloudflare_configured()),
                      ("Telegram", integrations.telegram_configured())):

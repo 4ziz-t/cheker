@@ -234,10 +234,6 @@ export default function Nodes() {
                     <dd>{n.users_online ?? '—'}</dd>
                   </div>
                   <div>
-                    <dt>Xray</dt>
-                    <dd>{n.xray_version || '—'}</dd>
-                  </div>
-                  <div>
                     <dt>{st.key === 'offline' ? 'Не работает' : 'Обновлено'}</dt>
                     <dd>
                       {st.key === 'offline' && n.offline_since

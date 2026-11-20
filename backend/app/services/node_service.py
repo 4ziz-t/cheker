@@ -133,6 +133,7 @@ async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
         if now - n.speed_drop_since >= confirm and rn.uuid not in _drop_handled:
             _drop_handled.add(rn.uuid)
             triggered.append((n, info.current_bps, info.baseline_bps))
+    await tracker.flush(db)
     await db.commit()
 
     for n, cur, base in triggered:
@@ -163,6 +164,7 @@ async def hide_node(db: AsyncSession, uuid: str) -> str | None:
     name = node.name
     await db.delete(node)
     tracker.forget(uuid)
+    await tracker.flush(db)
     _streak.pop(uuid, None)
     _drop_handled.discard(uuid)
     await db.commit()
@@ -262,6 +264,7 @@ async def poll_nodes(sync: bool = False) -> int | None:
         gone = [uuid for uuid in existing if uuid not in remote_ids]
         for uuid in gone:
             _streak.pop(uuid, None)
+            tracker.forget(uuid)
         if gone:
             await db.execute(delete(Node).where(Node.uuid.in_(gone)))
         await db.commit()

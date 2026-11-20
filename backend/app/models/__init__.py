@@ -4,5 +4,6 @@ from app.models.event import Event
 from app.models.investigation import Investigation
 from app.models.node import Node
 from app.models.setting import Setting
+from app.models.speed_sample import SpeedSample
 
-__all__ = ["Domain", "DomainIP", "Event", "Investigation", "Node", "Setting", "UserSession", "LoginAttempt"]
+__all__ = ["Domain", "DomainIP", "Event", "Investigation", "Node", "Setting", "SpeedSample", "UserSession", "LoginAttempt"]
