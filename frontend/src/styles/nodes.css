@@ -41,6 +41,13 @@
   gap: 10px;
 }
 
+.node-card__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .node-card__title {
   display: flex;
   align-items: center;

@@ -26,9 +26,12 @@ def _node_label(n: Node) -> str:
     return f"{flag}{n.name} ({n.address})"
 
 
-async def _import_addresses(db: AsyncSession, remote: list[RemnaNode]) -> None:
-    """Добавляет адреса нод (домен или IP) во вкладку «Домены», если их там ещё нет."""
-    if not await settings_service.get(db, "auto_import_nodes"):
+async def _import_addresses(db: AsyncSession, remote: list[RemnaNode], force: bool = False) -> None:
+    """Добавляет адреса нод (домен или IP) во вкладку «Домены», если их там ещё нет.
+
+    force — добавить даже при выключенном автоимпорте (синхронизация с Remnawave).
+    """
+    if not force and not await settings_service.get(db, "auto_import_nodes"):
         return
     ignored = set(await domain_service.get_ignored(db))
     names = set((await db.execute(select(Domain.name))).scalars().all())
@@ -136,16 +139,79 @@ async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
         await investigation_service.on_speed_drop(db, n, cur, base)
 
 
-async def poll_nodes() -> bool:
-    if _poll_lock.locked():
-        return False
+HIDDEN_KEY = "hidden_nodes"
+
+
+async def get_hidden(db: AsyncSession) -> list[str]:
+    """uuid нод, удалённых из списка Cheker (в Remnawave они остаются)."""
+    return list(await settings_service.get_state(db, HIDDEN_KEY, []))
+
+
+async def hide_node(db: AsyncSession, uuid: str) -> str | None:
+    """Удаляет ноду из списка Cheker вместе с её доменом/IP. В Remnawave ничего не меняется.
+
+    Возвращает имя удалённого домена (если был).
+    """
+    node = await db.get(Node, uuid)
+    if node is None:
+        return None
+    hidden = set(await get_hidden(db))
+    hidden.add(uuid)
+    await settings_service.set_state(db, HIDDEN_KEY, sorted(hidden))
+
+    address = (node.address or "").strip().lower().rstrip(".")
+    name = node.name
+    await db.delete(node)
+    tracker.forget(uuid)
+    _streak.pop(uuid, None)
+    _drop_handled.discard(uuid)
+    await db.commit()
+
+    deleted_domain = None
+    if address:
+        # домен удаляем, только если его не использует другая нода из списка
+        others = (await db.execute(select(Node.uuid).where(Node.address.ilike(address)))).first()
+        domain = (await db.execute(select(Domain).where(Domain.name == address))).scalar_one_or_none()
+        if domain is not None and others is None:
+            deleted_domain = domain.name
+            await db.delete(domain)
+            await db.commit()
+        # чтобы автоимпорт не вернул домен, пока нода удалена
+        await domain_service.set_ignored(db, address, True)
+
+    await record(db, "node_hidden", "Нода удалена из Cheker",
+                 f"{name} ({address})" + (f", удалён домен/IP {deleted_domain}" if deleted_domain else "")
+                 + ". В Remnawave ничего не менялось.", node=name, notify=False)
+    return deleted_domain
+
+
+async def poll_nodes(sync: bool = False) -> int | None:
+    """Опрос нод. sync=True — вернуть удалённые из списка ноды (и их домены).
+
+    Возвращает число восстановленных нод (для sync) или 0; None — если опрос не удался/уже идёт.
+    """
+    if _poll_lock.locked() and not sync:
+        return None  # обычный опрос уже идёт; синхронизация — дождётся его
     async with _poll_lock, SessionLocal() as db:
         try:
-            remote = await RemnawaveClient().get_nodes()
+            remote_all = await RemnawaveClient().get_nodes()
             await errors.resolve(db, "remnawave", "Remnawave")
         except RemnawaveError as e:
             await errors.report(db, "remnawave", "Remnawave", str(e))
-            return False
+            return None
+
+        hidden = set(await get_hidden(db))
+        restored: list[RemnaNode] = []
+        if sync and hidden:
+            restored = [rn for rn in remote_all if rn.uuid in hidden]
+            await settings_service.set_state(db, HIDDEN_KEY, [])
+            for rn in restored:
+                addr = (rn.address or "").strip().lower().rstrip(".")
+                if addr:
+                    await domain_service.set_ignored(db, addr, False)
+            hidden = set()
+            await db.commit()
+        remote = [rn for rn in remote_all if rn.uuid not in hidden]
 
         existing = {n.uuid: n for n in (await db.execute(select(Node))).scalars().all()}
         now = utcnow()
@@ -201,6 +267,8 @@ async def poll_nodes() -> bool:
         await db.commit()
 
         await _import_addresses(db, remote)
+        if restored:
+            await _import_addresses(db, restored, force=True)
         await _update_speeds(db, remote)
 
         for kind, n in notifications:
@@ -216,4 +284,4 @@ async def poll_nodes() -> bool:
                 await db.commit()
                 await record(db, "node_online", "Нода снова online", f"{_node_label(n)}{downtime}",
                              level="success", node=n.name, emoji="🟢")
-        return True
+        return len(restored)

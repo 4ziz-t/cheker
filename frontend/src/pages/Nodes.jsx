@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { nodesApi } from '../api/index.js';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
-import { IconRefresh, IconSearch } from '../components/Icons.jsx';
+import { IconRefresh, IconSearch, IconSwap, IconTrash } from '../components/Icons.jsx';
+import { ConfirmModal } from '../components/Modal.jsx';
 import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -29,6 +30,9 @@ export default function Nodes() {
   const toast = useToast();
   const { data, setData, error, loading, reload } = usePolling(nodesApi.list, 15000);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [toDelete, setToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
 
@@ -63,6 +67,37 @@ export default function Nodes() {
     }
   };
 
+  const sync = async () => {
+    setSyncing(true);
+    try {
+      const res = await nodesApi.sync();
+      setData(res.nodes);
+      toast.success(
+        res.restored ? `Возвращено нод: ${res.restored} (вместе с их доменами/IP)` : 'Синхронизировано, удалённых нод не было',
+      );
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const doDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await nodesApi.remove(toDelete.uuid);
+      setData((prev) => prev.filter((n) => n.uuid !== toDelete.uuid));
+      toast.success(
+        res.deleted_domain ? `Нода и домен ${res.deleted_domain} удалены из Cheker` : 'Нода удалена из Cheker',
+      );
+      setToDelete(null);
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
 
   return (
     <div className="page">
@@ -70,10 +105,28 @@ export default function Nodes() {
         title="Ноды"
         subtitle={data ? `Online ${counts.online} из ${counts.online + counts.offline}` : ''}
         actions={
-          <button type="button" className="btn btn--primary" onClick={refresh} disabled={refreshing}>
-            {refreshing ? <Spinner size={16} /> : <IconRefresh size={18} />}
-            <span>Обновить</span>
-          </button>
+          <>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={refresh}
+              disabled={refreshing || syncing}
+              title="Обновить статус и скорость нод из списка"
+            >
+              {refreshing ? <Spinner size={16} /> : <IconRefresh size={18} />}
+              <span>Обновить</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={sync}
+              disabled={refreshing || syncing}
+              title="Вернуть удалённые из списка ноды и их домены/IP"
+            >
+              {syncing ? <Spinner size={16} /> : <IconSwap size={18} />}
+              <span>Синхронизировать с Remnawave</span>
+            </button>
+          </>
         }
       />
 
@@ -124,7 +177,18 @@ export default function Nodes() {
                     {n.country_code && <span className="node-card__cc">{n.country_code}</span>}
                     <span className="node-card__name">{n.name}</span>
                   </div>
-                  <Badge tone={st.tone}>{st.label}</Badge>
+                  <div className="node-card__head-actions">
+                    <Badge tone={st.tone}>{st.label}</Badge>
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn--danger"
+                      title="Удалить ноду из Cheker"
+                      aria-label="Удалить ноду"
+                      onClick={() => setToDelete(n)}
+                    >
+                      <IconTrash size={17} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="node-card__addr mono">
@@ -200,6 +264,29 @@ export default function Nodes() {
         </div>
       )}
 
+      {toDelete && (
+        <ConfirmModal
+          title="Удалить ноду из Cheker"
+          text={
+            <>
+              Нода <b>{toDelete.name}</b> ({toDelete.address}) пропадёт из списка, её статус и скорость перестанут
+              отслеживаться.
+              {toDelete.domain_id && (
+                <>
+                  {' '}
+                  Вместе с ней удалится домен/IP <b className="mono">{toDelete.address}</b> из вкладки «Домены».
+                </>
+              )}{' '}
+              В Remnawave ничего не изменится. Вернуть можно кнопкой «Синхронизировать с Remnawave».
+            </>
+          }
+          confirmText="Удалить"
+          danger
+          busy={deleting}
+          onConfirm={doDelete}
+          onClose={() => setToDelete(null)}
+        />
+      )}
     </div>
   );
 }

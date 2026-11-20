@@ -9,7 +9,11 @@ from app.services.settings_service import EVENT_TYPES
 
 router = APIRouter(prefix="/events", tags=["events"])
 
-EXTRA_TYPES = {"domain_changed": "Изменения доменов", "node_action": "Действия с нодами"}
+EXTRA_TYPES = {
+    "domain_changed": "Изменения доменов",
+    "node_hidden": "Ноды, удалённые из Cheker",
+    "node_action": "Действия с нодами (старые версии)",
+}
 
 
 @router.get("", response_model=EventsPage)
