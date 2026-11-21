@@ -128,38 +128,70 @@
   max-width: 120px;
 }
 
+/* ---------- мобильная карточка домена ---------- */
 @media (max-width: 1000px) {
   .domain-row--head {
     display: none;
   }
   .domain-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 10px;
-  }
-  .domain-row__main {
-    flex: 1 1 0;
-  }
-  .row-card__chevron {
-    order: 2;
+    grid-template-columns: 1fr 1fr 32px;
+    grid-template-areas:
+      'main main chev'
+      'status ip ip'
+      'pool checked checked'
+      'tog tog tog';
+    align-items: start;
+    gap: 12px 14px;
+    padding: 14px 12px 0 16px;
   }
   .domain-row__cells {
-    order: 3;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 20px;
-    flex-basis: 100%;
+    display: contents;
+  }
+  .domain-row__main {
+    grid-area: main;
+  }
+  .row-card__chevron {
+    grid-area: chev;
+    margin-top: -4px;
+  }
+  .domain-row__status {
+    grid-area: status;
+  }
+  .domain-row__cell--ip {
+    grid-area: ip;
+  }
+  .domain-row__pool {
+    grid-area: pool;
+  }
+  .domain-row__cell--checked {
+    grid-area: checked;
   }
   .domain-row__cell[data-label] {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    align-items: flex-start;
+    gap: 4px;
   }
   .domain-row__cell[data-label]::before {
     content: attr(data-label);
     font-size: 11.5px;
     color: var(--muted);
+  }
+  /* автосмена — отдельной полосой внизу карточки */
+  .domain-row__auto {
+    grid-area: tog;
+    margin: 0 -12px 0 -16px;
+    padding: 10px 12px 10px 16px;
+    border-top: 1px solid var(--border);
+  }
+  .domain-row .domain-row__auto[data-label] {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .domain-row__auto[data-label]::before {
+    font-size: 13px;
+    color: var(--text-2);
   }
 }
 

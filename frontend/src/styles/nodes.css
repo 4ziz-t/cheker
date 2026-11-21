@@ -18,7 +18,7 @@
   display: grid;
   grid-template-columns:
     28px minmax(190px, 2.2fr) minmax(120px, 1fr) minmax(95px, 0.8fr) minmax(95px, 0.8fr)
-    minmax(95px, 0.8fr) 64px minmax(90px, 0.8fr) minmax(150px, 1fr) 40px;
+    minmax(95px, 0.8fr) 64px minmax(90px, 0.8fr) minmax(130px, 1fr) 40px;
   align-items: center;
   gap: 12px;
   padding: 12px 14px 12px 12px;
@@ -181,6 +181,11 @@
 }
 
 
+/* на широком экране в колонке «Домен» — статус и стрелка, текст «Открыть» — только на мобильном */
+.node-row__cell--domain .row-link__text {
+  display: none;
+}
+
 .node-row__actions {
   display: flex;
   justify-content: flex-end;
@@ -190,46 +195,85 @@
   display: contents;
 }
 
-/* узкие экраны: заголовок строки сверху, значения с подписями — лентой под ним */
+/* ---------- мобильная карточка ноды ---------- */
 @media (max-width: 1100px) {
   .node-row--head {
     display: none;
   }
   .node-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 8px 10px;
+    grid-template-columns: 28px minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      'grip main status actions'
+      'cells cells cells cells';
+    align-items: start;
+    gap: 12px 8px;
+    padding: 12px 10px 12px 10px;
   }
   .node-row__grip-cell {
-    align-self: flex-start;
+    grid-area: grip;
+    align-self: start;
+  }
+  .node-row__grip {
+    height: 32px;
   }
   .node-row__main {
-    flex: 1 1 0;
+    grid-area: main;
+    padding-top: 4px;
   }
   .node-row__status {
+    grid-area: status;
     align-items: flex-end;
+    padding-top: 4px;
   }
   .node-row__actions {
-    order: 2;
+    grid-area: actions;
   }
+  /* значения — аккуратной сеткой 3×2 в подложке */
   .node-row__cells {
-    order: 3;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 18px;
-    flex-basis: 100%;
-    padding-left: 38px;
+    grid-area: cells;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px 12px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
   }
   .node-row__cell[data-label] {
     display: flex;
     flex-direction: column;
-    gap: 1px;
-    min-width: 72px;
+    align-items: flex-start;
+    gap: 3px;
   }
   .node-row__cell[data-label]::before {
     content: attr(data-label);
     font-size: 11.5px;
     color: var(--muted);
+  }
+  /* ссылка на домен — во всю ширину, отдельной строкой */
+  .node-row .node-row__cell--domain {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .node-row__cell--domain .row-link {
+    padding: 6px 10px 6px 6px;
+  }
+  .node-row__cell--domain .row-link__text {
+    display: inline;
+  }
+}
+
+@media (max-width: 420px) {
+  .node-row__cells {
+    gap: 10px 8px;
+    padding: 10px;
+  }
+  .node-row__cell {
+    font-size: 13px;
   }
 }

@@ -358,7 +358,7 @@ export default function Nodes() {
                       ? formatDuration(n.offline_since)
                       : formatRelative(n.updated_at)}
                   </div>
-                  <div className="node-row__cell" data-label="Домен">
+                  <div className="node-row__cell node-row__cell--domain" data-label="Домен">
                     {n.domain_id ? (
                       <Link
                         to={`/domains/${n.domain_id}`}

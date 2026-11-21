@@ -173,12 +173,12 @@ export default function Domains() {
                   )}
                 </div>
 
-                <div className="domain-row__cell domain-row__status">
+                <div className="domain-row__cell domain-row__status" data-label="Статус">
                   {d.enabled ? <DomainStatusBadge status={d.status} /> : <span className="muted">Выключен</span>}
                 </div>
 
                 <div className="domain-row__cells">
-                  <div className="domain-row__cell" data-label="Текущий IP">
+                  <div className="domain-row__cell domain-row__cell--ip" data-label="Текущий IP">
                     <span className="mono domain-row__ip">{d.current_ip || '—'}</span>
                   </div>
                   <div className="domain-row__cell domain-row__pool" data-label="Список IP">
@@ -187,11 +187,11 @@ export default function Domains() {
                       {d.ips.length} IP{blocked ? ` · в бане ${blocked}` : ''}
                     </span>
                   </div>
-                  <div className="domain-row__cell" data-label="Проверено">
+                  <div className="domain-row__cell domain-row__cell--checked" data-label="Проверено">
                     <span className="muted">{formatRelative(d.last_checked_at)}</span>
                   </div>
                   <div
-                    className="domain-row__cell"
+                    className="domain-row__cell domain-row__auto"
                     data-label="Автосмена"
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => e.stopPropagation()}
