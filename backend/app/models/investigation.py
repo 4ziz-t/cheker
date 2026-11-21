@@ -10,7 +10,8 @@ from app.core.timeutils import utcnow
 class InvestigationStatus:
     ACTIVE = "active"
     BANNED = "banned"          # все проверки показали бан → IP сменён
-    NOT_BANNED = "not_banned"  # IP не в бане → «с нодой что-то не так»
+    NOT_BANNED = "not_banned"  # IP не в бане 
+    RECOVERED = "recovered"    # скорость ноды вернулась к норме — проверять дальше незачем
     FAILED = "failed"          # проверить не удалось
     CANCELLED = "cancelled"
 
@@ -27,6 +28,7 @@ class Investigation(Base):
     node_name: Mapped[str] = mapped_column(String(255), default="")
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     reason: Mapped[str] = mapped_column(Text, default="")
+    trigger: Mapped[str] = mapped_column(String(16), default="speed", server_default="speed")  # speed | manual
 
     status: Mapped[str] = mapped_column(String(16), default=InvestigationStatus.ACTIVE, index=True)
     checks_total: Mapped[int] = mapped_column(Integer, default=3)

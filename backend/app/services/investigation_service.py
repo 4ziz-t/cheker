@@ -5,8 +5,12 @@
 с интервалом (по умолчанию 30 минут).
 
   • все N проверок показали бан (wire недоступен) → IP в бане: смена A-записи + уведомление;
-  • хоть одна проверка показала, что IP доступен → проверка останавливается (экономим запросы),
-    уведомление «скорость упала, но IP не в бане — с нодой что-то не так»;
+  • хоть одна проверка показала, что IP доступен → проверка останавливается (экономим запросы):
+      – скорость к этому времени вернулась к норме → «скорость восстановилась», без тревоги;
+      – скорость всё ещё ниже нормы → «IP не в бане, но скорость ноды низкая»;
+  • перед каждой проверкой смотрим на ноду: ушла в offline → проверка отменяется
+    (придёт отдельное уведомление «нода offline»); скорость восстановилась → проверка не нужна;
+  • запуск вручную (кнопка «Запустить») — просто проверка IP: о «проблемах с нодой» не сообщает;
   • ошибки проверки не засчитываются; после 2×N попыток — «проверить не удалось».
 """
 import json
@@ -48,7 +52,8 @@ async def _in_cooldown(db: AsyncSession, domain_id: int, minutes: int) -> bool:
 
 
 async def start(
-    db: AsyncSession, domain: Domain, *, reason: str, node: Node | None = None, force: bool = False
+    db: AsyncSession, domain: Domain, *, reason: str, node: Node | None = None, force: bool = False,
+    trigger: str = "speed",
 ) -> Investigation | None:
     """Запустить проверку домена. force — без учёта паузы после прошлой проверки."""
     if await active_for_domain(db, domain.id):
@@ -63,6 +68,7 @@ async def start(
         node_name=node.name if node else "",
         ip=domain.current_ip or (domain.name if domain.kind == DomainKind.IP else None),
         reason=reason,
+        trigger=trigger,
         checks_total=int(cfg["investigation_checks"]),
         next_check_at=utcnow(),
     )
@@ -117,6 +123,34 @@ async def _finish(db: AsyncSession, inv: Investigation, status: str, summary: st
     await db.commit()
 
 
+def _speed_state(node: Node | None, cfg: dict) -> str:
+    """dropped — скорость всё ещё ниже нормы; recovered — вернулась; unknown — данных нет."""
+    if node is None or node.speed_bps is None or not node.baseline_bps:
+        return "unknown"
+    share = float(cfg["speed_drop_percent"]) / 100
+    min_base = float(cfg["speed_min_baseline_mbps"]) * 1_000_000 / 8
+    if node.baseline_bps < min_base:
+        return "unknown"
+    return "dropped" if node.speed_bps <= node.baseline_bps * (1 - share) else "recovered"
+
+
+def _speed_text(node: Node) -> str:
+    drop = round((1 - node.speed_bps / node.baseline_bps) * 100) if node.baseline_bps else 0
+    tail = f", ниже нормы на {drop}%" if drop > 0 else ""
+    return f"сейчас {mbps(node.speed_bps)} при норме {mbps(node.baseline_bps)}{tail}"
+
+
+async def _recovered(db: AsyncSession, inv: Investigation, node: Node, ip: str | None, checked: bool) -> None:
+    label = inv.node_name or inv.domain_name
+    if checked:
+        text = f"{label}: скорость восстановилась ({_speed_text(node)}), IP {ip} не в бане. Всё в порядке."
+    else:
+        text = f"{label}: скорость восстановилась ({_speed_text(node)}) — проверка IP не понадобилась."
+    await _finish(db, inv, S.RECOVERED, text)
+    await record(db, "speed_drop", "Скорость ноды восстановилась", text,
+                 level="success", node=inv.node_name or None, domain=inv.domain_name, emoji="📈")
+
+
 async def _step(db: AsyncSession, inv: Investigation) -> None:
     domain = await db.get(Domain, inv.domain_id)
     if domain is None or not domain.enabled:
@@ -124,6 +158,20 @@ async def _step(db: AsyncSession, inv: Investigation) -> None:
         return
 
     cfg = await settings_service.get_all(db)
+    by_speed = inv.trigger != "manual"
+    node = await db.get(Node, inv.node_uuid) if inv.node_uuid else None
+
+    if by_speed:
+        if node is None:
+            await _finish(db, inv, S.CANCELLED, "Нода удалена из списка — проверка остановлена")
+            return
+        if not node.is_connected or node.is_disabled:
+            await _finish(db, inv, S.CANCELLED,
+                          "Нода offline — проверка IP остановлена (о самой ноде придёт отдельное уведомление)")
+            return
+        if _speed_state(node, cfg) == "recovered":
+            await _recovered(db, inv, node, inv.ip, checked=False)
+            return
     interval = int(cfg["investigation_interval_minutes"])
     cache = IPCheckCache(cfg)
 
@@ -169,11 +217,24 @@ async def _step(db: AsyncSession, inv: Investigation) -> None:
             if entry is not None:
                 await domain_service._apply_result(db, domain, entry, res)  # noqa: SLF001
             domain.status, domain.status_message = DomainStatus.OK, ""
-            text = (f"{inv.node_name or domain.name}: {inv.reason}, но IP {ip} по проводу доступен "
-                    f"(проверка {inv.checks_done} из {inv.checks_total}). "
-                    f"Похоже, проблема на самой ноде или у хостера — проверьте сервер и канал.")
+            if not by_speed:
+                await _finish(db, inv, S.NOT_BANNED, f"IP {ip} не в бане — по проводу доступен.")
+                return
+            if node is not None:
+                await db.refresh(node)  # свежая скорость из последнего опроса
+            state = _speed_state(node, cfg)
+            if state == "recovered":
+                await _recovered(db, inv, node, ip, checked=True)
+                return
+            if state == "unknown":
+                await _finish(db, inv, S.NOT_BANNED,
+                              f"IP {ip} не в бане. Текущую скорость ноды узнать не удалось.")
+                return
+            text = (f"{inv.node_name or domain.name}: IP {ip} по проводу доступен — это не бан, "
+                    f"но скорость всё ещё низкая ({_speed_text(node)}). "
+                    f"Проверьте сервер ноды и канал у хостера.")
             await _finish(db, inv, S.NOT_BANNED, text)
-            await record(db, "node_suspect", "С нодой что-то не так", text,
+            await record(db, "node_suspect", "IP не в бане, но скорость ноды низкая", text,
                          level="warning", node=inv.node_name or None, domain=domain.name, ip=ip, emoji="🛠")
             return
 

@@ -108,6 +108,7 @@ export const INVESTIGATION_STATUS = {
   active: { label: 'Идёт проверка', tone: 'warn' },
   banned: { label: 'IP в бане', tone: 'bad' },
   not_banned: { label: 'IP не в бане', tone: 'ok' },
+  recovered: { label: 'Скорость восстановилась', tone: 'ok' },
   failed: { label: 'Не удалось', tone: 'muted' },
   cancelled: { label: 'Отменена', tone: 'muted' },
 };

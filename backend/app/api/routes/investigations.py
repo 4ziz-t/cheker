@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models import Domain, Investigation
+from app.models import Domain, Investigation, Node
 from app.models.investigation import InvestigationStatus
 from app.schemas import InvestigationOut
 from app.services import investigation_service
@@ -34,7 +34,15 @@ async def start_investigation(domain_id: int, db: AsyncSession = Depends(get_db)
     d = await db.get(Domain, domain_id)
     if d is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Домен не найден")
-    inv = await investigation_service.start(db, d, reason="запущено вручную", force=True)
+    node = (await db.execute(select(Node).where(Node.address.ilike(d.name)))).scalars().first()
+    if node is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "К домену не привязана нода — проверьте IP кнопкой «Проверить» в списке IP",
+        )
+    inv = await investigation_service.start(
+        db, d, reason="запущено вручную", node=node, force=True, trigger="manual"
+    )
     if inv is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Проверка этого домена уже идёт")
     scheduler.wake_investigations()

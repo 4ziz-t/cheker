@@ -507,6 +507,7 @@ export default function DomainDetail() {
           )}
         </section>
 
+        {domain.nodes.length > 0 && (
         <section className="card panel">
           <div className="panel__head">
             <h2 className="panel__title">Проверка после падения скорости</h2>
@@ -522,14 +523,7 @@ export default function DomainDetail() {
             </button>
           </div>
           {!investigations?.length ? (
-            <EmptyState
-              title="Проверок не было"
-              text={
-                domain.nodes.length
-                  ? 'Запустится сама, когда у ноды упадёт скорость'
-                  : 'К домену не привязана нода — проверяется автопроверкой «без ноды» (вкладка «Домены»), если она включена'
-              }
-            />
+            <EmptyState title="Проверок не было" text="Запустится сама, когда у ноды упадёт скорость" />
           ) : (
             <InvestigationList
               items={investigations}
@@ -541,6 +535,7 @@ export default function DomainDetail() {
             />
           )}
         </section>
+        )}
 
         <section className="card panel">
           <h2 className="panel__title">Заметки</h2>

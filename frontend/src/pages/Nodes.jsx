@@ -167,94 +167,94 @@ export default function Nodes() {
           text={data?.length ? '' : 'Данные подтянутся из Remnawave после первого опроса'}
         />
       ) : (
-        <div className="node-grid">
+        <div className="card node-table">
+          <div className="node-row node-row--head" aria-hidden="true">
+            <span>Нода</span>
+            <span>Статус</span>
+            <span>Сейчас</span>
+            <span>Среднее</span>
+            <span>Норма</span>
+            <span>Онлайн</span>
+            <span>Обновлено</span>
+            <span>Домен</span>
+            <span />
+          </div>
           {list.map((n) => {
             const st = nodeState(n);
+            const online = st.key === 'online';
+            const noSpeed = online && !n.speed_source;
             return (
-              <article key={n.uuid} className={`card node-card node-card--${st.key}`}>
-                <div className="node-card__head">
-                  <div className="node-card__title">
-                    {n.country_code && <span className="node-card__cc">{n.country_code}</span>}
-                    <span className="node-card__name">{n.name}</span>
+              <div key={n.uuid} className={`node-row node-row--${st.key} ${n.speed_drop_since ? 'is-drop' : ''}`}>
+                <div className="node-row__main">
+                  <div className="node-row__title">
+                    {n.country_code && <span className="node-row__cc">{n.country_code}</span>}
+                    <span className="node-row__name">{n.name}</span>
                   </div>
-                  <div className="node-card__head-actions">
-                    <Badge tone={st.tone}>{st.label}</Badge>
-                    <button
-                      type="button"
-                      className="icon-btn icon-btn--danger"
-                      title="Удалить ноду из Cheker"
-                      aria-label="Удалить ноду"
-                      onClick={() => setToDelete(n)}
-                    >
-                      <IconTrash size={17} />
-                    </button>
+                  <div className="node-row__addr mono">
+                    {n.address}
+                    {n.port ? `:${n.port}` : ''}
                   </div>
+                  {st.key === 'offline' && n.last_status_message && (
+                    <div className="node-row__msg">{n.last_status_message}</div>
+                  )}
+                  {noSpeed && <div className="node-row__hint">Remnawave не отдаёт трафик — скорость не посчитать</div>}
                 </div>
 
-                <div className="node-card__addr mono">
-                  {n.address}
-                  {n.port ? `:${n.port}` : ''}
+                <div className="node-row__cell node-row__status">
+                  <Badge tone={st.tone}>{st.label}</Badge>
+                  {n.speed_drop_since && (
+                    <span className="node-row__flag">↓ падение {formatDuration(n.speed_drop_since)}</span>
+                  )}
                 </div>
 
-                {st.key !== 'disabled' && (
-                  <div className={`node-speed ${n.speed_drop_since ? 'is-drop' : ''}`}>
-                    {st.key === 'online' ? (
-                      <>
-                        <div>
-                          <span className="muted small">Сейчас</span>
-                          <b>{n.speed_now_bps == null ? '…' : formatSpeed(n.speed_now_bps)}</b>
-                        </div>
-                        <div>
-                          <span className="muted small">Среднее</span>
-                          <span>{n.speed_bps == null ? 'считается…' : formatSpeed(n.speed_bps)}</span>
-                        </div>
-                        <div>
-                          <span className="muted small">Норма</span>
-                          <span>{n.baseline_bps == null ? 'набирается…' : formatSpeed(n.baseline_bps)}</span>
-                        </div>
-                        {n.speed_drop_since && (
-                          <span className="node-speed__flag">↓ падение {formatDuration(n.speed_drop_since)}</span>
-                        )}
-                      </>
+                <div className="node-row__cells">
+                  <div className="node-row__cell" data-label="Сейчас">
+                    {online ? (
+                      <b className="node-row__speed">{n.speed_now_bps == null ? '…' : formatSpeed(n.speed_now_bps)}</b>
+                    ) : st.key === 'offline' ? (
+                      <b className="text-bad">0</b>
                     ) : (
-                      <div>
-                        <span className="muted small">Скорость</span>
-                        <b className="text-bad">0 — нода offline</b>
-                      </div>
+                      '—'
                     )}
                   </div>
-                )}
-                {st.key === 'online' && !n.speed_source && (
-                  <p className="field__hint">Remnawave не отдаёт трафик этой ноды — скорость посчитать нельзя</p>
-                )}
-
-                <dl className="node-card__meta">
-                  <div>
-                    <dt>Онлайн</dt>
-                    <dd>{n.users_online ?? '—'}</dd>
+                  <div className="node-row__cell" data-label="Среднее">
+                    {online ? (n.speed_bps == null ? <span className="muted">считается…</span> : formatSpeed(n.speed_bps)) : '—'}
                   </div>
-                  <div>
-                    <dt>{st.key === 'offline' ? 'Не работает' : 'Обновлено'}</dt>
-                    <dd>
-                      {st.key === 'offline' && n.offline_since
-                        ? formatDuration(n.offline_since)
-                        : formatRelative(n.updated_at)}
-                    </dd>
+                  <div className="node-row__cell" data-label="Норма">
+                    {online
+                      ? n.baseline_bps == null
+                        ? <span className="muted">набирается…</span>
+                        : formatSpeed(n.baseline_bps)
+                      : '—'}
                   </div>
-                </dl>
-
-                {n.domain_id && (
-                  <Link to={`/domains/${n.domain_id}`} className="node-card__domain">
-                    <span>Домен</span>
-                    <DomainStatusBadge status={n.domain_status} />
-                  </Link>
-                )}
-
-                {st.key === 'offline' && n.last_status_message && (
-                  <p className="node-card__msg">{n.last_status_message}</p>
-                )}
-
-              </article>
+                  <div className="node-row__cell" data-label="Онлайн">{n.users_online ?? '—'}</div>
+                  <div className="node-row__cell" data-label={st.key === 'offline' ? 'Не работает' : 'Обновлено'}>
+                    {st.key === 'offline' && n.offline_since
+                      ? formatDuration(n.offline_since)
+                      : formatRelative(n.updated_at)}
+                  </div>
+                  <div className="node-row__cell" data-label="Домен">
+                    {n.domain_id ? (
+                      <Link to={`/domains/${n.domain_id}`} className="node-row__domain" title="Открыть домен">
+                        <DomainStatusBadge status={n.domain_status} />
+                      </Link>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </div>
+                </div>
+                <div className="node-row__actions">
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn--danger"
+                    title="Удалить ноду из Cheker"
+                    aria-label="Удалить ноду"
+                    onClick={() => setToDelete(n)}
+                  >
+                    <IconTrash size={17} />
+                  </button>
+                </div>
+              </div>
             );
           })}
         </div>

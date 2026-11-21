@@ -193,6 +193,7 @@ class InvestigationOut(ORM):
     node_name: str
     ip: str | None
     reason: str
+    trigger: str = "speed"
     status: str
     checks_total: int
     checks_done: int

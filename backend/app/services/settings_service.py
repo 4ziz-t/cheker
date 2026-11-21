@@ -11,7 +11,7 @@ from app.models import Setting
 # Типы событий: ключ → название (для переключателей уведомлений)
 EVENT_TYPES: dict[str, str] = {
     "speed_drop": "Упала скорость ноды — начата проверка IP",
-    "node_suspect": "С нодой что-то не так (IP не в бане)",
+    "node_suspect": "IP не в бане, но скорость ноды низкая",
     "ip_blocked": "IP в бане",
     "ip_unblocked": "IP разбанен",
     "ip_switched_auto": "Автоматическая смена IP",
