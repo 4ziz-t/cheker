@@ -24,7 +24,7 @@
   padding: 12px 14px 12px 12px;
   overflow: hidden;
   font-variant-numeric: tabular-nums;
-  transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+  transition: box-shadow 0.15s, border-color 0.15s;
 }
 .node-row::before {
   content: '';
@@ -38,11 +38,25 @@
 .node-row:not(.node-row--head):hover {
   border-color: var(--border-strong);
 }
+/* перетаскивание: карточка едет за курсором, соседи плавно уступают место */
+.node-list.is-sorting {
+  cursor: grabbing;
+}
+.node-list.is-sorting .node-row:not(.is-dragging) {
+  transition: transform 0.18s ease;
+}
 .node-row.is-dragging {
-  z-index: 2;
-  border-color: var(--accent, var(--border-strong));
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
-  transform: scale(1.01);
+  z-index: 5;
+  transition: none;
+  border-color: var(--accent);
+  background: var(--surface-2);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--accent);
+  opacity: 0.97;
+}
+.node-row.is-dragging .node-row__grip {
+  color: var(--accent);
+  background: var(--accent-soft);
+  cursor: grabbing;
 }
 
 .node-row--head {

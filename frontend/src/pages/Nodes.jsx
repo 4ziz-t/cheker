@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { nodesApi } from '../api/index.js';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
@@ -35,7 +36,7 @@ export default function Nodes() {
   const [deleting, setDeleting] = useState(false);
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const [dragOrder, setDragOrder] = useState(null);
+  const [dragging, setDragging] = useState(null); // uuid ноды, которую тянут
   const [savingOrder, setSavingOrder] = useState(false);
 
   const counts = useMemo(() => {
@@ -47,101 +48,125 @@ export default function Nodes() {
     return c;
   }, [data]);
 
-  // порядок — как пришёл с сервера (его задаёт пользователь перетаскиванием)
-  const ordered = useMemo(() => {
-    if (!data) return [];
-    if (!dragOrder) return data;
-    const byId = new Map(data.map((n) => [n.uuid, n]));
-    const res = dragOrder.map((u) => byId.get(u)).filter(Boolean);
-    data.forEach((n) => !dragOrder.includes(n.uuid) && res.push(n));
-    return res;
-  }, [data, dragOrder]);
-
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return ordered
+    // порядок — как пришёл с сервера (его задаёт пользователь перетаскиванием)
+    return (data || [])
       .filter((n) => filter === 'all' || nodeState(n).key === filter)
       .filter((n) => !q || n.name.toLowerCase().includes(q) || n.address.toLowerCase().includes(q));
-  }, [ordered, filter, query]);
+  }, [data, filter, query]);
 
   const canReorder = filter === 'all' && !query.trim() && list.length > 1;
 
+  const saveOrder = async (ids) => {
+    setSavingOrder(true);
+    try {
+      setData(await nodesApi.saveOrder(ids));
+    } catch (err) {
+      toast.error(`Не удалось сохранить порядок: ${err.message}`);
+      reload();
+    } finally {
+      setSavingOrder(false);
+    }
+  };
+
   // ---------- перетаскивание (мышь и палец: pointer events) ----------
+  // Пока карточку тянут, список НЕ перестраивается: карточка едет за курсором,
+  // а соседние плавно сдвигаются, освобождая место. Порядок меняется только при отпускании.
   const listRef = useRef(null);
-  const dragRef = useRef(null); // { uuid, pointerId }
+  const dragRef = useRef(null);
+
+  const rowEls = () => (listRef.current ? [...listRef.current.querySelectorAll('[data-uuid]')] : []);
+
+  const layout = (drag, pointerY) => {
+    const { rects, index, step } = drag;
+    const dy = pointerY - drag.startY;
+    const center = rects[index].top + rects[index].height / 2 + dy;
+    let target = 0;
+    rects.forEach((r, j) => {
+      if (j !== index && r.top + r.height / 2 < center) target += 1;
+    });
+    drag.target = target;
+    drag.els.forEach((el, j) => {
+      if (j === index) {
+        el.style.transform = `translateY(${dy}px)`;
+        return;
+      }
+      let shift = 0;
+      if (index < j && j <= target) shift = -step;
+      else if (target <= j && j < index) shift = step;
+      el.style.transform = shift ? `translateY(${shift}px)` : '';
+    });
+  };
 
   const onGripDown = (e, uuid) => {
-    if (!canReorder || savingOrder) return;
+    if (!canReorder || savingOrder || (e.pointerType === 'mouse' && e.button !== 0)) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    dragRef.current = { uuid, pointerId: e.pointerId };
-    setDragOrder((data || []).map((n) => n.uuid));
+    const els = rowEls();
+    const index = els.findIndex((el) => el.dataset.uuid === uuid);
+    if (index < 0) return;
+    const rects = els.map((el) => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top + window.scrollY, height: r.height };
+    });
+    const gap = rects.length > 1 ? rects[1].top - (rects[0].top + rects[0].height) : 8;
+    dragRef.current = {
+      uuid,
+      pointerId: e.pointerId,
+      els,
+      rects,
+      index,
+      target: index,
+      step: rects[index].height + gap,
+      startY: e.clientY + window.scrollY,
+    };
+    setDragging(uuid);
   };
 
   const onGripMove = (e) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return;
     // автопрокрутка у краёв экрана
-    if (e.clientY < 70) window.scrollBy(0, -12);
-    else if (e.clientY > window.innerHeight - 70) window.scrollBy(0, 12);
-
-    const rows = listRef.current ? [...listRef.current.querySelectorAll('[data-uuid]')] : [];
-    const target = rows.find((el) => {
-      const r = el.getBoundingClientRect();
-      return e.clientY >= r.top && e.clientY <= r.bottom;
-    });
-    if (!target || target.dataset.uuid === drag.uuid) return;
-    const r = target.getBoundingClientRect();
-    const after = e.clientY > r.top + r.height / 2;
-    setDragOrder((prev) => {
-      if (!prev) return prev;
-      const next = prev.filter((u) => u !== drag.uuid);
-      let idx = next.indexOf(target.dataset.uuid);
-      if (idx < 0) return prev;
-      if (after) idx += 1;
-      next.splice(idx, 0, drag.uuid);
-      return next.join() === prev.join() ? prev : next;
-    });
+    if (e.clientY < 70) window.scrollBy(0, -14);
+    else if (e.clientY > window.innerHeight - 70) window.scrollBy(0, 14);
+    layout(drag, e.clientY + window.scrollY);
   };
 
-  const onGripUp = async (e) => {
+  const onGripUp = (e) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return;
     dragRef.current = null;
-    const finalOrder = dragOrder;
-    const before = (data || []).map((n) => n.uuid);
-    if (!finalOrder || finalOrder.join() === before.join()) {
-      setDragOrder(null);
-      return;
+    const ids = (data || []).map((n) => n.uuid);
+    const moved = drag.target !== drag.index;
+    if (moved) {
+      ids.splice(drag.index, 1);
+      ids.splice(drag.target, 0, drag.uuid);
+      const byId = new Map(data.map((n) => [n.uuid, n]));
+      // сразу перестраиваем список и снимаем сдвиги — без «прыжка» карточек
+      flushSync(() => {
+        setData(ids.map((u) => byId.get(u)));
+        setDragging(null);
+      });
+    } else {
+      flushSync(() => setDragging(null));
     }
-    setSavingOrder(true);
-    try {
-      setData(await nodesApi.saveOrder(finalOrder));
-    } catch (err) {
-      toast.error(`Не удалось сохранить порядок: ${err.message}`);
-    } finally {
-      setDragOrder(null);
-      setSavingOrder(false);
-    }
+    drag.els.forEach((el) => {
+      el.style.transform = '';
+    });
+    if (moved) saveOrder(ids);
   };
 
-  // перемещение кнопками (клавиатура/точное перемещение)
-  const moveBy = async (uuid, delta) => {
+  // перемещение стрелками ↑/↓ (клавиатура)
+  const moveBy = (uuid, delta) => {
     const ids = (data || []).map((n) => n.uuid);
     const i = ids.indexOf(uuid);
     const j = i + delta;
     if (i < 0 || j < 0 || j >= ids.length) return;
     [ids[i], ids[j]] = [ids[j], ids[i]];
-    setDragOrder(ids);
-    setSavingOrder(true);
-    try {
-      setData(await nodesApi.saveOrder(ids));
-    } catch (err) {
-      toast.error(`Не удалось сохранить порядок: ${err.message}`);
-    } finally {
-      setDragOrder(null);
-      setSavingOrder(false);
-    }
+    const byId = new Map(data.map((n) => [n.uuid, n]));
+    setData(ids.map((u) => byId.get(u)));
+    saveOrder(ids);
   };
 
   const refresh = async () => {
@@ -255,7 +280,7 @@ export default function Nodes() {
           text={data?.length ? '' : 'Данные подтянутся из Remnawave после первого опроса'}
         />
       ) : (
-        <div className={`node-list ${dragOrder && dragRef.current ? 'is-sorting' : ''}`} ref={listRef}>
+        <div className={`node-list ${dragging ? 'is-sorting' : ''}`} ref={listRef}>
           <p className="node-list__hint muted small">
             {canReorder
               ? 'Порядок можно менять: потяните карточку за ⠿ слева. Порядок сохраняется.'
@@ -282,7 +307,7 @@ export default function Nodes() {
                 key={n.uuid}
                 data-uuid={n.uuid}
                 className={`card node-row node-row--${st.key} ${n.speed_drop_since ? 'is-drop' : ''} ${
-                  dragRef.current?.uuid === n.uuid ? 'is-dragging' : ''
+                  dragging === n.uuid ? 'is-dragging' : ''
                 }`}
               >
                 <div className="node-row__grip-cell">
