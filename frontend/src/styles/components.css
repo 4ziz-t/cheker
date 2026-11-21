@@ -103,6 +103,11 @@
   justify-content: space-between;
   gap: 10px;
 }
+.panel__head--stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
 
 .panel__title {
   font-size: 15px;
@@ -423,6 +428,9 @@ textarea.input {
 }
 .dot--bad {
   background: var(--bad);
+}
+.dot--warn {
+  background: var(--warn);
 }
 
 /* ---------- алерты ---------- */

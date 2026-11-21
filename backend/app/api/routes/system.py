@@ -153,6 +153,22 @@ async def dashboard(db: AsyncSession = Depends(get_db)):
     for d in enabled:
         status_counts[d.status] = status_counts.get(d.status, 0) + 1
 
+    # скорость нод — в порядке, который пользователь задал на вкладке «Ноды»
+    order = {u: i for i, u in enumerate(await settings_service.get_state(db, "node_order", []) or [])}
+    by_name = {d.name: d.id for d in domains}
+    speeds = [
+        {
+            "uuid": n.uuid, "name": n.name, "country_code": n.country_code,
+            "online": bool(n.is_connected),
+            "now_bps": n.speed_now_bps, "avg_bps": n.speed_bps, "norm_bps": n.baseline_bps,
+            "drop_since": n.speed_drop_since.isoformat(timespec="seconds") + "Z" if n.speed_drop_since else None,
+            "users_online": n.users_online,
+            "domain_id": by_name.get((n.address or "").strip().lower().rstrip(".")),
+        }
+        for n in sorted(active, key=lambda n: (order.get(n.uuid, len(order)), n.name.lower()))
+    ]
+    last_poll = max((n.updated_at for n in nodes if n.updated_at), default=None)
+
     return {
         "nodes": {
             "total": len(active),
@@ -186,7 +202,10 @@ async def dashboard(db: AsyncSession = Depends(get_db)):
             "switches_auto": day_counts.get("ip_switched_auto", 0),
             "switches_manual": day_counts.get("ip_switched_manual", 0),
             "node_offline": day_counts.get("node_offline", 0),
+            "speed_drops": day_counts.get("speed_drop", 0),
         },
+        "speeds": speeds,
+        "nodes_updated_at": last_poll.isoformat(timespec="seconds") + "Z" if last_poll else None,
         "recent_events": [EventOut.model_validate(e).model_dump(mode="json") for e in recent],
         "investigations": [InvestigationOut.model_validate(i).model_dump(mode="json") for i in investigations],
         "status": _status(),
