@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { domainsApi } from '../api/index.js';
 import AddDomainModal from '../components/AddDomainModal.jsx';
 import { DomainStatusBadge } from '../components/Badge.jsx';
-import { IconPlus, IconSearch } from '../components/Icons.jsx';
+import { IconChevronRight, IconPlus, IconSearch } from '../components/Icons.jsx';
 import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -122,59 +122,93 @@ export default function Domains() {
           }
         />
       ) : (
-        <div className="domain-grid">
+        <div className="domain-list">
+          <div className="domain-row domain-row--head" aria-hidden="true">
+            <span>Домен / IP</span>
+            <span>Статус</span>
+            <span>Текущий IP</span>
+            <span>Список IP</span>
+            <span>Проверено</span>
+            <span>Автосмена</span>
+            <span />
+          </div>
           {list.map((d) => {
             const blocked = d.ips.filter((i) => i.is_blocked === true).length;
+            const open = () => navigate(`/domains/${d.id}`);
             return (
-              <article key={d.id} className={`card domain-card ${!d.enabled ? 'is-off' : ''}`}>
-                <div className="domain-card__head">
-                  <Link to={`/domains/${d.id}`} className="domain-card__name">
+              <div
+                key={d.id}
+                role="link"
+                tabIndex={0}
+                title={`Открыть ${d.name}`}
+                className={`card domain-row row-card--clickable domain-row--${d.enabled ? d.status : 'off'} ${
+                  !d.enabled ? 'is-off' : ''
+                }`}
+                onClick={open}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.target === e.currentTarget) open();
+                }}
+              >
+                <div className="domain-row__main">
+                  <Link to={`/domains/${d.id}`} className="domain-row__name" onClick={(e) => e.stopPropagation()}>
                     {d.name}
                   </Link>
+                  <div className="domain-row__tags">
+                    {d.kind === 'ip' && <span className="tag">IP-адрес</span>}
+                    {d.source === 'remnawave' && <span className="tag tag--muted">из Remnawave</span>}
+                    {d.nodes.length ? (
+                      <span className="tag tag--muted" title="Проверяется при падении скорости ноды">
+                        нода: {d.nodes.join(', ')}
+                      </span>
+                    ) : (
+                      <span className="tag tag--warn" title="Проверяется только автопроверкой без ноды или вручную">
+                        без ноды
+                      </span>
+                    )}
+                  </div>
+                  {d.status_message && d.status !== 'ok' && (
+                    <p className={`domain-row__msg text-${DOMAIN_STATUS[d.status]?.tone || 'muted'}`}>
+                      {d.status_message}
+                    </p>
+                  )}
+                </div>
+
+                <div className="domain-row__cell domain-row__status">
                   {d.enabled ? <DomainStatusBadge status={d.status} /> : <span className="muted">Выключен</span>}
                 </div>
 
-                <div className="domain-card__tags">
-                  {d.kind === 'ip' && <span className="tag">IP-адрес</span>}
-                  {d.source === 'remnawave' && <span className="tag tag--muted">из Remnawave</span>}
-                  {d.nodes.length ? (
-                    <span className="tag tag--muted" title="Проверяется при падении скорости ноды">
-                      нода: {d.nodes.join(', ')}
+                <div className="domain-row__cells">
+                  <div className="domain-row__cell" data-label="Текущий IP">
+                    <span className="mono domain-row__ip">{d.current_ip || '—'}</span>
+                  </div>
+                  <div className="domain-row__cell domain-row__pool" data-label="Список IP">
+                    <IpDots ips={d.ips} current={d.current_ip} />
+                    <span className="muted small">
+                      {d.ips.length} IP{blocked ? ` · в бане ${blocked}` : ''}
                     </span>
-                  ) : (
-                    <span className="tag tag--warn" title="Проверяется только автопроверкой без ноды или вручную">
-                      без ноды
-                    </span>
-                  )}
+                  </div>
+                  <div className="domain-row__cell" data-label="Проверено">
+                    <span className="muted">{formatRelative(d.last_checked_at)}</span>
+                  </div>
+                  <div
+                    className="domain-row__cell"
+                    data-label="Автосмена"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    role="presentation"
+                  >
+                    {d.kind === 'ip' ? (
+                      <span className="muted small">Только мониторинг</span>
+                    ) : (
+                      <Toggle checked={d.auto_switch} onChange={(v) => toggleAuto(d, v)} label="" />
+                    )}
+                  </div>
                 </div>
 
-                <div className="domain-card__ip">
-                  <span className="muted">Текущий IP</span>
-                  <span className="mono domain-card__current">{d.current_ip || '—'}</span>
-                </div>
-
-                <div className="domain-card__pool">
-                  <IpDots ips={d.ips} current={d.current_ip} />
-                  <span className="muted">
-                    {d.ips.length} IP{blocked ? ` · в бане ${blocked}` : ''}
-                  </span>
-                </div>
-
-                {d.status_message && d.status !== 'ok' && (
-                  <p className={`domain-card__msg text-${DOMAIN_STATUS[d.status]?.tone || 'muted'}`}>
-                    {d.status_message}
-                  </p>
-                )}
-
-                <div className="domain-card__foot">
-                  {d.kind === 'ip' ? (
-                    <span className="muted small">Только мониторинг</span>
-                  ) : (
-                    <Toggle checked={d.auto_switch} onChange={(v) => toggleAuto(d, v)} label="Автосмена" />
-                  )}
-                  <span className="muted small">{formatRelative(d.last_checked_at)}</span>
-                </div>
-              </article>
+                <span className="row-card__chevron" aria-hidden="true">
+                  <IconChevronRight size={20} />
+                </span>
+              </div>
             );
           })}
         </div>

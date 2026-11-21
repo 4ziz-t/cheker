@@ -101,3 +101,5 @@ export const IconGrip = make(
     <circle cx="15" cy="18" r="1.2" fill="currentColor" />
   </>,
 );
+
+export const IconChevronRight = make(<path d="m9 6 6 6-6 6" />);

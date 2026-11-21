@@ -18,7 +18,7 @@
   display: grid;
   grid-template-columns:
     28px minmax(190px, 2.2fr) minmax(120px, 1fr) minmax(95px, 0.8fr) minmax(95px, 0.8fr)
-    minmax(95px, 0.8fr) 64px minmax(90px, 0.8fr) minmax(110px, 0.9fr) 40px;
+    minmax(95px, 0.8fr) 64px minmax(90px, 0.8fr) minmax(150px, 1fr) 40px;
   align-items: center;
   gap: 12px;
   padding: 12px 14px 12px 12px;
@@ -180,9 +180,6 @@
   font-size: 14.5px;
 }
 
-.node-row__domain {
-  display: inline-flex;
-}
 
 .node-row__actions {
   display: flex;

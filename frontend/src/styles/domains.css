@@ -1,41 +1,110 @@
-/* ---------- список доменов ---------- */
-.domain-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
-}
-
-.domain-card {
+/* ---------- список доменов: одна карточка-строка на домен ---------- */
+.domain-list {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+.domain-row {
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    minmax(220px, 2.4fr) minmax(120px, 1fr) minmax(130px, 1fr) minmax(130px, 1.1fr)
+    minmax(90px, 0.8fr) minmax(90px, 0.8fr) 32px;
+  align-items: center;
   gap: 12px;
-  padding: 16px;
-  transition: border-color 0.15s;
+  padding: 12px 12px 12px 18px;
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s;
 }
-.domain-card:hover {
-  border-color: var(--border-strong);
+.domain-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--ok);
 }
-.domain-card.is-off {
+.domain-row--blocked::before,
+.domain-row--no_ips::before {
+  background: var(--bad);
+}
+.domain-row--error::before,
+.domain-row--no_record::before {
+  background: var(--warn);
+}
+.domain-row--unknown::before,
+.domain-row--off::before {
+  background: var(--surface-3);
+}
+.domain-row.is-off {
   opacity: 0.6;
 }
 
-.domain-card__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
+.domain-row--head {
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.domain-row--head::before {
+  display: none;
 }
 
-.domain-card__name {
+.domain-row__cells {
+  display: contents;
+}
+
+.domain-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.domain-row__name {
+  align-self: flex-start;
+  max-width: 100%;
   font-family: var(--font-mono);
   font-weight: 600;
   font-size: 14.5px;
   word-break: break-all;
 }
-.domain-card__name:hover {
+.domain-row:hover .domain-row__name,
+.domain-row__name:hover {
   color: var(--accent);
 }
 
+.domain-row__tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.domain-row__msg {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.domain-row__cell {
+  min-width: 0;
+  font-size: 13.5px;
+}
+
+.domain-row__ip {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.domain-row__pool {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* теги на странице домена */
 .domain-card__tags {
   display: flex;
   gap: 6px;
@@ -59,38 +128,39 @@
   max-width: 120px;
 }
 
-.domain-card__ip {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 12.5px;
-}
-
-.domain-card__current {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.domain-card__pool {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-}
-
-.domain-card__msg {
-  font-size: 13px;
-}
-
-.domain-card__foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding-top: 12px;
-  margin-top: auto;
-  border-top: 1px solid var(--border);
+@media (max-width: 1000px) {
+  .domain-row--head {
+    display: none;
+  }
+  .domain-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .domain-row__main {
+    flex: 1 1 0;
+  }
+  .row-card__chevron {
+    order: 2;
+  }
+  .domain-row__cells {
+    order: 3;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    flex-basis: 100%;
+  }
+  .domain-row__cell[data-label] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .domain-row__cell[data-label]::before {
+    content: attr(data-label);
+    font-size: 11.5px;
+    color: var(--muted);
+  }
 }
 
 .ip-dots {

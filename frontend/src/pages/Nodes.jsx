@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { nodesApi } from '../api/index.js';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
-import { IconGrip, IconRefresh, IconSearch, IconSwap, IconTrash } from '../components/Icons.jsx';
+import { IconChevronRight, IconGrip, IconRefresh, IconSearch, IconSwap, IconTrash } from '../components/Icons.jsx';
 import { ConfirmModal } from '../components/Modal.jsx';
 import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
@@ -360,8 +360,14 @@ export default function Nodes() {
                   </div>
                   <div className="node-row__cell" data-label="Домен">
                     {n.domain_id ? (
-                      <Link to={`/domains/${n.domain_id}`} className="node-row__domain" title="Открыть домен">
+                      <Link
+                        to={`/domains/${n.domain_id}`}
+                        className="row-link"
+                        title={`Открыть домен ${n.address}: IP, проверки, история`}
+                      >
                         <DomainStatusBadge status={n.domain_status} />
+                        <span className="row-link__text">Открыть</span>
+                        <IconChevronRight size={16} />
                       </Link>
                     ) : (
                       <span className="muted">—</span>
