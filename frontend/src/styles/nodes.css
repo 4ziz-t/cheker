@@ -1,24 +1,30 @@
-/* Список нод: одна нода — одна строка */
+/* Список нод: у каждой ноды своя карточка-строка, порядок меняется перетаскиванием */
 
-.node-table {
-  padding: 0;
-  overflow: hidden;
+.node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.node-list.is-sorting {
+  user-select: none;
+}
+
+.node-list__hint {
+  margin: 0 0 2px;
 }
 
 .node-row {
   position: relative;
   display: grid;
   grid-template-columns:
-    minmax(200px, 2.2fr) minmax(120px, 1fr) minmax(95px, 0.8fr) minmax(95px, 0.8fr)
+    28px minmax(190px, 2.2fr) minmax(120px, 1fr) minmax(95px, 0.8fr) minmax(95px, 0.8fr)
     minmax(95px, 0.8fr) 64px minmax(90px, 0.8fr) minmax(110px, 0.9fr) 40px;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px 12px 18px;
-  border-top: 1px solid var(--border);
+  padding: 12px 14px 12px 12px;
+  overflow: hidden;
   font-variant-numeric: tabular-nums;
-}
-.node-row:first-child {
-  border-top: 0;
+  transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
 }
 .node-row::before {
   content: '';
@@ -30,13 +36,18 @@
   background: var(--ok);
 }
 .node-row:not(.node-row--head):hover {
-  background: var(--bg-elev);
+  border-color: var(--border-strong);
+}
+.node-row.is-dragging {
+  z-index: 2;
+  border-color: var(--accent, var(--border-strong));
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  transform: scale(1.01);
 }
 
 .node-row--head {
-  padding-top: 10px;
-  padding-bottom: 10px;
-  background: var(--bg-elev);
+  padding-top: 0;
+  padding-bottom: 0;
   font-size: 12px;
   color: var(--muted);
 }
@@ -58,6 +69,36 @@
 }
 .node-row.is-drop::before {
   background: var(--warn);
+}
+
+.node-row__grip-cell {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+}
+.node-row__grip {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+}
+.node-row__grip:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.node-row__grip:active:not(:disabled) {
+  cursor: grabbing;
+}
+.node-row__grip:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .node-row__main {
@@ -163,6 +204,9 @@
     align-items: flex-start;
     gap: 8px 10px;
   }
+  .node-row__grip-cell {
+    align-self: flex-start;
+  }
   .node-row__main {
     flex: 1 1 0;
   }
@@ -178,6 +222,7 @@
     flex-wrap: wrap;
     gap: 8px 18px;
     flex-basis: 100%;
+    padding-left: 38px;
   }
   .node-row__cell[data-label] {
     display: flex;

@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { nodesApi } from '../api/index.js';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
-import { IconRefresh, IconSearch, IconSwap, IconTrash } from '../components/Icons.jsx';
+import { IconGrip, IconRefresh, IconSearch, IconSwap, IconTrash } from '../components/Icons.jsx';
 import { ConfirmModal } from '../components/Modal.jsx';
 import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
@@ -35,6 +35,8 @@ export default function Nodes() {
   const [deleting, setDeleting] = useState(false);
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
+  const [dragOrder, setDragOrder] = useState(null);
+  const [savingOrder, setSavingOrder] = useState(false);
 
   const counts = useMemo(() => {
     const c = { all: 0, online: 0, offline: 0, disabled: 0 };
@@ -45,16 +47,102 @@ export default function Nodes() {
     return c;
   }, [data]);
 
+  // порядок — как пришёл с сервера (его задаёт пользователь перетаскиванием)
+  const ordered = useMemo(() => {
+    if (!data) return [];
+    if (!dragOrder) return data;
+    const byId = new Map(data.map((n) => [n.uuid, n]));
+    const res = dragOrder.map((u) => byId.get(u)).filter(Boolean);
+    data.forEach((n) => !dragOrder.includes(n.uuid) && res.push(n));
+    return res;
+  }, [data, dragOrder]);
+
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (data || [])
+    return ordered
       .filter((n) => filter === 'all' || nodeState(n).key === filter)
-      .filter((n) => !q || n.name.toLowerCase().includes(q) || n.address.toLowerCase().includes(q))
-      .sort((a, b) => {
-        const order = { offline: 0, online: 1, disabled: 2 };
-        return order[nodeState(a).key] - order[nodeState(b).key] || a.name.localeCompare(b.name);
-      });
-  }, [data, filter, query]);
+      .filter((n) => !q || n.name.toLowerCase().includes(q) || n.address.toLowerCase().includes(q));
+  }, [ordered, filter, query]);
+
+  const canReorder = filter === 'all' && !query.trim() && list.length > 1;
+
+  // ---------- перетаскивание (мышь и палец: pointer events) ----------
+  const listRef = useRef(null);
+  const dragRef = useRef(null); // { uuid, pointerId }
+
+  const onGripDown = (e, uuid) => {
+    if (!canReorder || savingOrder) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    dragRef.current = { uuid, pointerId: e.pointerId };
+    setDragOrder((data || []).map((n) => n.uuid));
+  };
+
+  const onGripMove = (e) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    // автопрокрутка у краёв экрана
+    if (e.clientY < 70) window.scrollBy(0, -12);
+    else if (e.clientY > window.innerHeight - 70) window.scrollBy(0, 12);
+
+    const rows = listRef.current ? [...listRef.current.querySelectorAll('[data-uuid]')] : [];
+    const target = rows.find((el) => {
+      const r = el.getBoundingClientRect();
+      return e.clientY >= r.top && e.clientY <= r.bottom;
+    });
+    if (!target || target.dataset.uuid === drag.uuid) return;
+    const r = target.getBoundingClientRect();
+    const after = e.clientY > r.top + r.height / 2;
+    setDragOrder((prev) => {
+      if (!prev) return prev;
+      const next = prev.filter((u) => u !== drag.uuid);
+      let idx = next.indexOf(target.dataset.uuid);
+      if (idx < 0) return prev;
+      if (after) idx += 1;
+      next.splice(idx, 0, drag.uuid);
+      return next.join() === prev.join() ? prev : next;
+    });
+  };
+
+  const onGripUp = async (e) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    dragRef.current = null;
+    const finalOrder = dragOrder;
+    const before = (data || []).map((n) => n.uuid);
+    if (!finalOrder || finalOrder.join() === before.join()) {
+      setDragOrder(null);
+      return;
+    }
+    setSavingOrder(true);
+    try {
+      setData(await nodesApi.saveOrder(finalOrder));
+    } catch (err) {
+      toast.error(`Не удалось сохранить порядок: ${err.message}`);
+    } finally {
+      setDragOrder(null);
+      setSavingOrder(false);
+    }
+  };
+
+  // перемещение кнопками (клавиатура/точное перемещение)
+  const moveBy = async (uuid, delta) => {
+    const ids = (data || []).map((n) => n.uuid);
+    const i = ids.indexOf(uuid);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    setDragOrder(ids);
+    setSavingOrder(true);
+    try {
+      setData(await nodesApi.saveOrder(ids));
+    } catch (err) {
+      toast.error(`Не удалось сохранить порядок: ${err.message}`);
+    } finally {
+      setDragOrder(null);
+      setSavingOrder(false);
+    }
+  };
 
   const refresh = async () => {
     setRefreshing(true);
@@ -167,8 +255,14 @@ export default function Nodes() {
           text={data?.length ? '' : 'Данные подтянутся из Remnawave после первого опроса'}
         />
       ) : (
-        <div className="card node-table">
+        <div className={`node-list ${dragOrder && dragRef.current ? 'is-sorting' : ''}`} ref={listRef}>
+          <p className="node-list__hint muted small">
+            {canReorder
+              ? 'Порядок можно менять: потяните карточку за ⠿ слева. Порядок сохраняется.'
+              : 'Менять порядок можно, когда выбран фильтр «Все» и поиск пустой.'}
+          </p>
           <div className="node-row node-row--head" aria-hidden="true">
+            <span />
             <span>Нода</span>
             <span>Статус</span>
             <span>Сейчас</span>
@@ -184,7 +278,38 @@ export default function Nodes() {
             const online = st.key === 'online';
             const noSpeed = online && !n.speed_source;
             return (
-              <div key={n.uuid} className={`node-row node-row--${st.key} ${n.speed_drop_since ? 'is-drop' : ''}`}>
+              <div
+                key={n.uuid}
+                data-uuid={n.uuid}
+                className={`card node-row node-row--${st.key} ${n.speed_drop_since ? 'is-drop' : ''} ${
+                  dragRef.current?.uuid === n.uuid ? 'is-dragging' : ''
+                }`}
+              >
+                <div className="node-row__grip-cell">
+                  <button
+                    type="button"
+                    className="node-row__grip"
+                    title={canReorder ? 'Потяните, чтобы переместить' : 'Сбросьте фильтр и поиск, чтобы менять порядок'}
+                    aria-label="Переместить ноду"
+                    disabled={!canReorder || savingOrder}
+                    onPointerDown={(e) => onGripDown(e, n.uuid)}
+                    onPointerMove={onGripMove}
+                    onPointerUp={onGripUp}
+                    onPointerCancel={onGripUp}
+                    onKeyDown={(e) => {
+                      if (!canReorder) return;
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        moveBy(n.uuid, -1);
+                      } else if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        moveBy(n.uuid, 1);
+                      }
+                    }}
+                  >
+                    <IconGrip size={18} />
+                  </button>
+                </div>
                 <div className="node-row__main">
                   <div className="node-row__title">
                     {n.country_code && <span className="node-row__cc">{n.country_code}</span>}

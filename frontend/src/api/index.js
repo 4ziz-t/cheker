@@ -31,6 +31,7 @@ export const nodesApi = {
   refresh: () => api.post('/nodes/refresh'),
   sync: () => api.post('/nodes/sync'),
   remove: (uuid) => api.del(`/nodes/${uuid}`),
+  saveOrder: (uuids) => api.put('/nodes/order', { uuids }),
 };
 
 export const eventsApi = {

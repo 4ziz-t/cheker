@@ -90,3 +90,14 @@ export const IconAlert = make(
 );
 export const IconCheck = make(<path d="M20 6 9 17l-5-5" />);
 export const IconSend = make(<path d="M22 2 11 13M22 2l-7 20-4-9-9-4z" />);
+
+export const IconGrip = make(
+  <>
+    <circle cx="9" cy="6" r="1.2" fill="currentColor" />
+    <circle cx="15" cy="6" r="1.2" fill="currentColor" />
+    <circle cx="9" cy="12" r="1.2" fill="currentColor" />
+    <circle cx="15" cy="12" r="1.2" fill="currentColor" />
+    <circle cx="9" cy="18" r="1.2" fill="currentColor" />
+    <circle cx="15" cy="18" r="1.2" fill="currentColor" />
+  </>,
+);
