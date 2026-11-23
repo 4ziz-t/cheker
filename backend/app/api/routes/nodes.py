@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import integrations
 from app.core.database import get_db
-from app.models import Domain, Node
+from app.models import Domain, DomainIP, Node
 from app.schemas import NodeOut
 from app.services import settings_service
 from app.services.node_service import get_hidden, hide_node, poll_nodes
@@ -26,12 +26,18 @@ async def _list(db: AsyncSession) -> list[NodeOut]:
     # порядок, который пользователь задал перетаскиванием; новые ноды — в конце, по имени
     order = {u: i for i, u in enumerate(await settings_service.get_state(db, ORDER_KEY, []) or [])}
     nodes = sorted(nodes, key=lambda n: (order.get(n.uuid, len(order)), n.name.lower()))
+    ip_stats: dict[int, list[int]] = {}  # domain_id → [всего, доступны, в бане, не проверены]
+    for domain_id, blocked in (await db.execute(select(DomainIP.domain_id, DomainIP.is_blocked))).all():
+        st = ip_stats.setdefault(domain_id, [0, 0, 0, 0])
+        st[0] += 1
+        st[1 if blocked is False else 2 if blocked is True else 3] += 1
     result = []
     for n in nodes:
         out = NodeOut.model_validate(n)
         d = domains.get(n.address.lower())
         if d:
             out.domain_id, out.domain_status = d.id, d.status
+            out.ips_total, out.ips_ok, out.ips_blocked, out.ips_unknown = ip_stats.get(d.id, [0, 0, 0, 0])
         result.append(out)
     return result
 

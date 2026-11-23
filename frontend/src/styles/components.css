@@ -883,3 +883,46 @@ textarea.input {
   background: var(--accent-soft);
   transform: translateX(2px);
 }
+
+/* ---------- индикатор IP: 5 делений + «в порядке/всего» + значки ---------- */
+.ip-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.ip-meter__bar {
+  display: inline-flex;
+  gap: 3px;
+}
+.ip-meter__seg {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--surface-3);
+}
+.ip-meter__seg--ok {
+  background: var(--ok);
+}
+.ip-meter__seg--warn {
+  background: var(--warn);
+}
+.ip-meter__seg--bad {
+  background: var(--bad);
+}
+.ip-meter__count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.ip-meter__flag {
+  display: inline-grid;
+  place-items: center;
+  margin-left: -2px;
+}
+.ip-meter__flag--bad {
+  color: var(--bad);
+}
+.ip-meter__flag--warn {
+  color: var(--warn);
+}

@@ -17,8 +17,8 @@
   position: relative;
   display: grid;
   grid-template-columns:
-    28px minmax(190px, 2.2fr) minmax(120px, 1fr) minmax(95px, 0.8fr) minmax(95px, 0.8fr)
-    minmax(95px, 0.8fr) 64px minmax(90px, 0.8fr) minmax(130px, 1fr) 40px;
+    28px minmax(190px, 2.2fr) minmax(120px, 1fr) minmax(95px, 0.8fr) minmax(165px, 1.2fr)
+    64px minmax(90px, 0.8fr) minmax(130px, 1fr) 40px;
   align-items: center;
   gap: 12px;
   padding: 12px 14px 12px 12px;
@@ -242,11 +242,11 @@
   .node-row__actions {
     grid-area: actions;
   }
-  /* значения — аккуратной сеткой 3×2 в подложке */
+  /* значения — аккуратной сеткой 2×2 в подложке */
   .node-row__cells {
     grid-area: cells;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px 12px;
     padding: 10px 12px;
     border-radius: var(--radius-sm);

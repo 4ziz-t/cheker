@@ -5,6 +5,7 @@ import { nodesApi } from '../api/index.js';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
 import { IconChevronRight, IconGrip, IconRefresh, IconSearch, IconSwap, IconTrash } from '../components/Icons.jsx';
 import { ConfirmModal } from '../components/Modal.jsx';
+import IpMeter from '../components/IpMeter.jsx';
 import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -291,8 +292,7 @@ export default function Nodes() {
             <span>Нода</span>
             <span>Статус</span>
             <span>Сейчас</span>
-            <span>Среднее</span>
-            <span>Норма</span>
+            <span>IP</span>
             <span>Онлайн</span>
             <span>Обновлено</span>
             <span>Домен</span>
@@ -367,15 +367,12 @@ export default function Nodes() {
                       '—'
                     )}
                   </div>
-                  <div className="node-row__cell" data-label="Среднее">
-                    {online ? (n.speed_bps == null ? <span className="muted">считается…</span> : formatSpeed(n.speed_bps)) : '—'}
-                  </div>
-                  <div className="node-row__cell" data-label="Норма">
-                    {online
-                      ? n.baseline_bps == null
-                        ? <span className="muted">набирается…</span>
-                        : formatSpeed(n.baseline_bps)
-                      : '—'}
+                  <div className="node-row__cell node-row__cell--ip" data-label="IP">
+                    {n.domain_id ? (
+                      <IpMeter ok={n.ips_ok} total={n.ips_total} blocked={n.ips_blocked} unknown={n.ips_unknown} />
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
                   </div>
                   <div className="node-row__cell" data-label="Онлайн">{n.users_online ?? '—'}</div>
                   <div className="node-row__cell" data-label={st.key === 'offline' ? 'Не работает' : 'Обновлено'}>

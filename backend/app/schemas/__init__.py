@@ -165,6 +165,11 @@ class NodeOut(ORM):
     speed_drop_since: UTCDatetime | None = None
     domain_id: int | None = None
     domain_status: str | None = None
+    # IP домена ноды: всего / доступны / в бане / ещё не проверены
+    ips_total: int = 0
+    ips_ok: int = 0
+    ips_blocked: int = 0
+    ips_unknown: int = 0
 
 
 # ------------------------------------------------------------ events
