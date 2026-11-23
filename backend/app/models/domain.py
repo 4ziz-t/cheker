@@ -44,7 +44,7 @@ class Domain(Base):
     # порт для проверки в Latency Lab; None — глобальная настройка
     check_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    auto_switch: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_switch: Mapped[bool] = mapped_column(Boolean, default=False)
     notes: Mapped[str] = mapped_column(Text, default="")
 
     current_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)

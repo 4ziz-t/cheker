@@ -31,7 +31,7 @@ DEFAULTS: dict[str, Any] = {
     "node_poll_interval_seconds": 60,
     "node_offline_confirm_polls": 2,   # «offline»/«online» — только если состояние держится N опросов подряд
     "auto_import_nodes": True,
-    "speed_drop_percent": 70,          # скорость упала на X% от нормы
+    "speed_drop_percent": 99,          # скорость упала на X% от нормы
     "speed_window_minutes": 5,         # текущая скорость = среднее за N минут
     "speed_baseline_hours": 3,         # норма = средняя скорость за N часов
     "speed_min_baseline_mbps": 1.0,    # не следить за почти пустыми нодами
@@ -130,4 +130,13 @@ async def migrate(db: AsyncSession) -> None:
         if row and json.loads(row.value) == ["*|цфо|off"]:
             row.value = json.dumps([])
         await set_state(db, "migrated_bschek_units", True)
+        await db.commit()
+
+    # Порог падения скорости по умолчанию стал 99% (был 70%). Тем, у кого сохранено
+    # старое значение по умолчанию, ставим новое один раз; своё значение не трогаем.
+    if not await get_state(db, "migrated_speed_drop_99"):
+        row = await db.get(Setting, "speed_drop_percent")
+        if row and json.loads(row.value) == 70:
+            row.value = json.dumps(99)
+        await set_state(db, "migrated_speed_drop_99", True)
         await db.commit()

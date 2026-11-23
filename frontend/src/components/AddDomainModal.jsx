@@ -12,7 +12,7 @@ const SOURCE_TEXT = { cloudflare: 'A-запись в Cloudflare', dns: 'DNS' };
 export default function AddDomainModal({ onClose, onCreated }) {
   const [name, setName] = useState('');
   const [ipsText, setIpsText] = useState('');
-  const [autoSwitch, setAutoSwitch] = useState(true);
+  const [autoSwitch, setAutoSwitch] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [lookup, setLookup] = useState(null); // {loading} | {ip, source, kind}

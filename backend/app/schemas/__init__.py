@@ -93,7 +93,7 @@ class DomainOut(ORM):
 class DomainCreate(BaseModel):
     name: str
     ips: list[str] = []
-    auto_switch: bool = True
+    auto_switch: bool = False
     enabled: bool = True
     notes: str = ""
 

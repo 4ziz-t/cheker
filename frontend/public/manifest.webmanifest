@@ -1,0 +1,23 @@
+{
+  "name": "Cheker — мониторинг нод и IP",
+  "short_name": "Cheker",
+  "description": "Ноды Remnawave, баны IP и автосмена A-записи",
+  "lang": "ru",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Ноды", "url": "/nodes", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Домены", "url": "/domains", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "События", "url": "/events", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

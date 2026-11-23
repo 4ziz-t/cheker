@@ -1,11 +1,14 @@
 import { NavLink } from 'react-router-dom';
+import useInstallPrompt from '../hooks/useInstallPrompt.js';
 import {
   IconDashboard,
+  IconDownload,
   IconGlobe,
   IconList,
   IconLogout,
   IconServer,
   IconSettings,
+  IconX,
 } from './Icons.jsx';
 import '../styles/layout.css';
 
@@ -18,6 +21,8 @@ const NAV = [
 ];
 
 export default function Layout({ children, onLogout }) {
+  const { canInstall, dismissed, install, dismiss } = useInstallPrompt();
+
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -33,13 +38,36 @@ export default function Layout({ children, onLogout }) {
             </NavLink>
           ))}
         </nav>
+        {canInstall && (
+          <button type="button" className="nav-link nav-link--install" onClick={install}>
+            <IconDownload />
+            <span>Установить приложение</span>
+          </button>
+        )}
         <button type="button" className="nav-link nav-link--logout" onClick={onLogout}>
           <IconLogout />
           <span>Выйти</span>
         </button>
       </aside>
 
-      <main className="content">{children}</main>
+      <main className="content">
+        {canInstall && !dismissed && (
+          <div className="install-bar">
+            <img src="/icon-192.png" alt="" className="install-bar__icon" />
+            <div className="install-bar__text">
+              <b>Установить Cheker</b>
+              <span>Откроется отдельным приложением, без адресной строки</span>
+            </div>
+            <button type="button" className="btn btn--primary btn--sm" onClick={install}>
+              Установить
+            </button>
+            <button type="button" className="icon-btn" aria-label="Скрыть" onClick={dismiss}>
+              <IconX size={18} />
+            </button>
+          </div>
+        )}
+        {children}
+      </main>
 
       <nav className="tabbar">
         {NAV.map(({ to, label, icon: Icon, end }) => (

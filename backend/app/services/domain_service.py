@@ -188,7 +188,7 @@ async def create_entry(
     name: str,
     *,
     ips: list[str] | None = None,
-    auto_switch: bool = True,
+    auto_switch: bool = False,
     enabled: bool = True,
     notes: str = "",
     source: str = DomainSource.MANUAL,
