@@ -15,7 +15,7 @@ from app.schemas import (
     SwitchIn,
     is_ipv4,
 )
-from app.services import domain_service
+from app.services import domain_service, node_service
 from app.services.events import record
 
 router = APIRouter(prefix="/domains", tags=["domains"])
@@ -54,7 +54,10 @@ def _set_ips(domain: Domain, ips: list[str]) -> None:
 
 @router.get("", response_model=list[DomainOut])
 async def list_domains(db: AsyncSession = Depends(get_db)):
-    domains = (await db.execute(select(Domain).order_by(Domain.name))).scalars().all()
+    domains = (await db.execute(select(Domain))).scalars().all()
+    # домены нод — в порядке нод (как в Remnawave), домены без ноды — после них, по имени
+    order = await node_service.domain_order(db)
+    domains = sorted(domains, key=lambda d: (order.get(d.name, len(order)), d.name))
     nodes = await _nodes_by_address(db)
     return [_out(d, nodes) for d in domains]
 
@@ -172,6 +175,17 @@ async def check_one_ip(domain_id: int, data: SwitchIn, db: AsyncSession = Depend
 async def check_domain(domain_id: int, db: AsyncSession = Depends(get_db)):
     d = await _get(db, domain_id)
     await domain_service.run_cycle([d.id])
+    d = await db.get(Domain, domain_id, populate_existing=True)
+    if d is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Домен не найден")
+    return _out(d, await _nodes_by_address(db))
+
+
+@router.post("/{domain_id}/check-ips", response_model=DomainOut)
+async def check_all_ips(domain_id: int, db: AsyncSession = Depends(get_db)):
+    """Проверить все IP домена (текущий и резервные) — кнопка ↻ на вкладке «Ноды»."""
+    d = await _get(db, domain_id)
+    await domain_service.run_cycle([d.id], all_ips=True)
     d = await db.get(Domain, domain_id, populate_existing=True)
     if d is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Домен не найден")

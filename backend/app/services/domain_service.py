@@ -264,7 +264,9 @@ async def _set_status(db: AsyncSession, domain: Domain, status: str, message: st
     await db.commit()
 
 
-async def process_domain(db: AsyncSession, domain: Domain, cache: IPCheckCache, global_auto: bool) -> None:
+async def process_domain(
+    db: AsyncSession, domain: Domain, cache: IPCheckCache, global_auto: bool, all_ips: bool = False
+) -> None:
     async with domain_lock(domain.id):
         # список IP могли изменить из панели, пока шёл цикл
         await db.refresh(domain)
@@ -296,6 +298,15 @@ async def process_domain(db: AsyncSession, domain: Domain, cache: IPCheckCache, 
         await _report_checker_errors(db, res)
         if current_entry is not None:
             await _apply_result(db, domain, current_entry, res)
+        # all_ips — проверить и резервные IP (новая нода или кнопка ↻ на вкладке «Ноды»).
+        # Результаты попадают в тот же кэш, поэтому при смене IP повторно не тратятся запросы.
+        if all_ips:
+            for entry in domain.ips:
+                if entry.ip == domain.current_ip:
+                    continue
+                other = await cache.get(entry.ip, domain.check_port)
+                await _report_checker_errors(db, other)
+                await _apply_result(db, domain, entry, other)
         await db.commit()
 
         # 3. решение
@@ -439,8 +450,11 @@ async def unlinked_domain_ids(db: AsyncSession) -> list[int]:
     rows = (await db.execute(select(Domain.id, Domain.name).where(Domain.enabled.is_(True)))).all()
     return [i for i, name in rows if name not in addresses]
 
-async def run_cycle(domain_ids: list[int] | None = None) -> bool:
-    """Полная проверка доменов. Возвращает False, если цикл уже идёт."""
+async def run_cycle(domain_ids: list[int] | None = None, all_ips: bool = False) -> bool:
+    """Полная проверка доменов. Возвращает False, если цикл уже идёт.
+
+    all_ips — проверить не только текущий, но и все резервные IP каждого домена.
+    """
     if domain_ids is None and _cycle_lock.locked():
         return False
     async with _cycle_lock:
@@ -457,7 +471,7 @@ async def run_cycle(domain_ids: list[int] | None = None) -> bool:
                 domains = (await db.execute(q)).scalars().all()
                 for d in domains:
                     try:
-                        await process_domain(db, d, cache, cfg["auto_switch_enabled"])
+                        await process_domain(db, d, cache, cfg["auto_switch_enabled"], all_ips)
                         count += 1
                     except Exception as e:  # noqa: BLE001
                         log.exception("Ошибка проверки домена %s", d.name)

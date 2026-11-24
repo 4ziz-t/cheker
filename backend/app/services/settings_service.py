@@ -132,6 +132,12 @@ async def migrate(db: AsyncSession) -> None:
         await set_state(db, "migrated_bschek_units", True)
         await db.commit()
 
+    # Ноды теперь идут в порядке Remnawave: прежний «свой» порядок сбрасываем один раз.
+    if not await get_state(db, "migrated_remna_order"):
+        await set_state(db, "node_order", [])
+        await set_state(db, "migrated_remna_order", True)
+        await db.commit()
+
     # Порог падения скорости по умолчанию стал 99% (был 70%). Тем, у кого сохранено
     # старое значение по умолчанию, ставим новое один раз; своё значение не трогаем.
     if not await get_state(db, "migrated_speed_drop_99"):

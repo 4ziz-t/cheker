@@ -13,7 +13,7 @@ from app.core.tasks import spawn
 from app.core.timeutils import utcnow
 from app.models import Domain, DomainIP, Event, Investigation, Node
 from app.schemas import DomainCreate, EventOut, InvestigationOut, normalize_ip
-from app.services import settings_service
+from app.services import node_service, settings_service
 from app.services.domain_service import cycle_state, detect_current_ip, run_cycle
 from app.services.events import errors
 from app.services.ip_check import check_ip
@@ -153,8 +153,8 @@ async def dashboard(db: AsyncSession = Depends(get_db)):
     for d in enabled:
         status_counts[d.status] = status_counts.get(d.status, 0) + 1
 
-    # скорость нод — в порядке, который пользователь задал на вкладке «Ноды»
-    order = {u: i for i, u in enumerate(await settings_service.get_state(db, "node_order", []) or [])}
+    # скорость нод — в том же порядке, что и на вкладке «Ноды» (как в Remnawave)
+    order = {n.uuid: i for i, n in enumerate(await node_service.ordered_nodes(db))}
     by_name = {d.name: d.id for d in domains}
     speeds = [
         {
@@ -165,7 +165,7 @@ async def dashboard(db: AsyncSession = Depends(get_db)):
             "users_online": n.users_online,
             "domain_id": by_name.get((n.address or "").strip().lower().rstrip(".")),
         }
-        for n in sorted(active, key=lambda n: (order.get(n.uuid, len(order)), n.name.lower()))
+        for n in sorted(active, key=lambda n: order.get(n.uuid, len(order)))
     ]
     last_poll = max((n.updated_at for n in nodes if n.updated_at), default=None)
 

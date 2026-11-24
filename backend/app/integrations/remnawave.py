@@ -41,6 +41,7 @@ class RemnaNode:
     xray_version: str | None
     last_status_message: str | None
     traffic_used_bytes: int | None = None
+    position: int = 0  # порядок в панели Remnawave (viewPosition, иначе — порядок в ответе)
 
     @classmethod
     def from_api(cls, d: dict[str, Any]) -> "RemnaNode":
@@ -57,6 +58,7 @@ class RemnaNode:
             xray_version=d.get("xrayVersion"),
             last_status_message=d.get("lastStatusMessage"),
             traffic_used_bytes=_to_int(d.get("trafficUsedBytes")),
+            position=_to_int(d.get("viewPosition")) or 0,
         )
 
 
@@ -103,9 +105,14 @@ class RemnawaveClient:
         if not isinstance(data, list):
             raise RemnawaveError("Remnawave вернул неожиданный ответ на список нод")
         try:
-            return [RemnaNode.from_api(n) for n in data if isinstance(n, dict)]
+            nodes = [RemnaNode.from_api(n) for n in data if isinstance(n, dict)]
         except KeyError as e:
             raise RemnawaveError(f"В ответе Remnawave у ноды нет поля {e}") from e
+        # порядок как в панели: по viewPosition, при равных — как пришли в ответе
+        if not any(n.position for n in nodes):
+            for i, n in enumerate(nodes):
+                n.position = i
+        return sorted(nodes, key=lambda n: n.position)
 
     async def get_realtime_speeds(self) -> dict[str, int] | None:
         """Скорость нод (байт/с) из realtime-статистики панели.

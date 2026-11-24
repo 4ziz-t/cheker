@@ -9,6 +9,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import SessionLocal
+from app.core.tasks import spawn
 from app.core.timeutils import fmt_duration, utcnow
 from app.integrations.remnawave import RemnaNode, RemnawaveClient, RemnawaveError
 from app.models import Domain, DomainIP, Node
@@ -195,6 +196,27 @@ async def _drop_foreign(db: AsyncSession, existing: dict[str, Node], remote_ids:
 
 
 HIDDEN_KEY = "hidden_nodes"
+# свой порядок нод (перетаскивание на вкладке «Ноды»); пустой — порядок как в Remnawave
+ORDER_KEY = "node_order"
+
+
+def _addr(value: str | None) -> str:
+    return (value or "").strip().lower().rstrip(".")
+
+
+async def ordered_nodes(db: AsyncSession) -> list[Node]:
+    """Ноды в порядке показа: свой порядок (если задан), иначе — как в панели Remnawave."""
+    nodes = (await db.execute(select(Node))).scalars().all()
+    order = {u: i for i, u in enumerate(await settings_service.get_state(db, ORDER_KEY, []) or [])}
+    return sorted(nodes, key=lambda n: (order.get(n.uuid, len(order)), n.position, n.name.lower()))
+
+
+async def domain_order(db: AsyncSession) -> dict[str, int]:
+    """Адрес домена → место в списке: домены нод идут в порядке нод, остальные — после них."""
+    result: dict[str, int] = {}
+    for i, n in enumerate(await ordered_nodes(db)):
+        result.setdefault(_addr(n.address), i)
+    return result
 
 
 async def get_hidden(db: AsyncSession) -> list[str]:
@@ -276,14 +298,18 @@ async def poll_nodes(sync: bool = False) -> int | None:
         confirm = max(int(await settings_service.get(db, "node_offline_confirm_polls")), 1)
         notifications: list[tuple[str, Node]] = []
 
+        new_addresses: set[str] = set()
         for rn in remote:
             n = existing.get(rn.uuid)
             is_new = n is None
             if is_new:
                 n = Node(uuid=rn.uuid)
                 db.add(n)
+                if _addr(rn.address):
+                    new_addresses.add(_addr(rn.address))
 
             n.panel_url = panel
+            n.position = rn.position
             n.name, n.address, n.port = rn.name, rn.address, rn.port
             n.country_code = rn.country_code
             n.is_connected, n.is_disabled, n.is_connecting = rn.is_connected, rn.is_disabled, rn.is_connecting
@@ -342,7 +368,21 @@ async def poll_nodes(sync: bool = False) -> int | None:
         await _import_addresses(db, remote)
         if restored:
             await _import_addresses(db, restored, force=True)
+            new_addresses |= {_addr(rn.address) for rn in restored if _addr(rn.address)}
+        if sync:
+            # синхронизация возвращает порядок нод как в Remnawave
+            await settings_service.set_state(db, ORDER_KEY, [])
+            await db.commit()
         await _update_speeds(db, remote)
+
+        # новая нода — сразу проверяем все IP её домена на бан (в фоне, опрос не ждёт)
+        if new_addresses:
+            ids = list((await db.execute(
+                select(Domain.id).where(Domain.name.in_(new_addresses), Domain.enabled.is_(True))
+            )).scalars().all())
+            if ids:
+                log.info("Новые ноды: проверяю IP доменов %s", sorted(new_addresses))
+                spawn(domain_service.run_cycle(ids, all_ips=True))
 
         for kind, n in notifications:
             if kind == "offline":

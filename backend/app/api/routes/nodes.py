@@ -7,13 +7,10 @@ from app.core import integrations
 from app.core.database import get_db
 from app.models import Domain, DomainIP, Node
 from app.schemas import NodeOut
-from app.services import settings_service
+from app.services import node_service, settings_service
 from app.services.node_service import get_hidden, hide_node, poll_nodes
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])
-
-
-ORDER_KEY = "node_order"
 
 
 class NodeOrderIn(BaseModel):
@@ -22,10 +19,8 @@ class NodeOrderIn(BaseModel):
 
 async def _list(db: AsyncSession) -> list[NodeOut]:
     domains = {d.name: d for d in (await db.execute(select(Domain))).scalars().all()}
-    nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
-    # порядок, который пользователь задал перетаскиванием; новые ноды — в конце, по имени
-    order = {u: i for i, u in enumerate(await settings_service.get_state(db, ORDER_KEY, []) or [])}
-    nodes = sorted(nodes, key=lambda n: (order.get(n.uuid, len(order)), n.name.lower()))
+    # порядок как в Remnawave (или свой, если ноды перетаскивали)
+    nodes = await node_service.ordered_nodes(db)
     ip_stats: dict[int, list[int]] = {}  # domain_id → [всего, доступны, в бане, не проверены]
     for domain_id, blocked in (await db.execute(select(DomainIP.domain_id, DomainIP.is_blocked))).all():
         st = ip_stats.setdefault(domain_id, [0, 0, 0, 0])
@@ -52,7 +47,7 @@ async def save_order(data: NodeOrderIn, db: AsyncSession = Depends(get_db)):
     """Сохранить порядок нод в списке (только в Cheker, Remnawave не трогаем)."""
     seen: set[str] = set()
     uuids = [u for u in data.uuids if not (u in seen or seen.add(u))]
-    await settings_service.set_state(db, ORDER_KEY, uuids)
+    await settings_service.set_state(db, node_service.ORDER_KEY, uuids)
     await db.commit()
     return await _list(db)
 

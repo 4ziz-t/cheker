@@ -17,7 +17,7 @@
   position: relative;
   display: grid;
   grid-template-columns:
-    28px minmax(190px, 2.2fr) minmax(120px, 1fr) minmax(95px, 0.8fr) minmax(165px, 1.2fr)
+    28px minmax(190px, 2.2fr) minmax(120px, 1fr) minmax(95px, 0.8fr) minmax(200px, 1.3fr)
     64px minmax(90px, 0.8fr) minmax(130px, 1fr) 40px;
   align-items: center;
   gap: 12px;
@@ -200,6 +200,34 @@
   display: none;
 }
 
+/* колонка «IP»: индикатор + кнопка ↻ «проверить все IP» */
+.node-row__ip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.node-row__recheck {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  color: var(--text-2);
+}
+.node-row__recheck:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.node-row__recheck.is-busy {
+  color: var(--accent);
+  border-color: var(--accent);
+  opacity: 1;
+}
+.node-row__recheck.is-busy svg {
+  animation: spin 0.9s linear infinite;
+}
+
 .node-row__actions {
   display: flex;
   justify-content: flex-end;
@@ -242,11 +270,11 @@
   .node-row__actions {
     grid-area: actions;
   }
-  /* значения — аккуратной сеткой 2×2 в подложке */
+  /* значения в подложке: Сейчас · Онлайн · Обновлено, ниже — IP во всю ширину, затем домен */
   .node-row__cells {
     grid-area: cells;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px 12px;
     padding: 10px 12px;
     border-radius: var(--radius-sm);
@@ -264,9 +292,20 @@
     font-size: 11.5px;
     color: var(--muted);
   }
+  .node-row .node-row__cell--ip {
+    grid-column: 1 / -1;
+    order: 1;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .node-row__cell--ip .node-row__ip {
+    width: 100%;
+    justify-content: space-between;
+  }
   /* ссылка на домен — во всю ширину, отдельной строкой */
   .node-row .node-row__cell--domain {
     grid-column: 1 / -1;
+    order: 2;
     flex-direction: row;
     align-items: center;
     justify-content: space-between;

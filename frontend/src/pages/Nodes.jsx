@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { nodesApi } from '../api/index.js';
+import { domainsApi, nodesApi } from '../api/index.js';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
 import { IconChevronRight, IconGrip, IconRefresh, IconSearch, IconSwap, IconTrash } from '../components/Icons.jsx';
 import { ConfirmModal } from '../components/Modal.jsx';
@@ -38,6 +38,7 @@ export default function Nodes() {
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [dragging, setDragging] = useState(null); // uuid ноды, которую тянут
+  const [checkingIps, setCheckingIps] = useState(() => new Set()); // id доменов, у которых идёт проверка IP
   const [savingOrder, setSavingOrder] = useState(false);
 
   const counts = useMemo(() => {
@@ -187,12 +188,38 @@ export default function Nodes() {
       const res = await nodesApi.sync();
       setData(res.nodes);
       toast.success(
-        res.restored ? `Возвращено нод: ${res.restored} (вместе с их доменами/IP)` : 'Синхронизировано, удалённых нод не было',
+        res.restored
+          ? `Возвращено нод: ${res.restored} (вместе с их доменами/IP). Порядок — как в Remnawave`
+          : 'Синхронизировано: порядок нод как в Remnawave',
       );
     } catch (e) {
       toast.error(e.message);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  // ↻ у колонки «IP»: проверить все IP домена ноды (текущий и резервные)
+  const checkIps = async (n) => {
+    setCheckingIps((prev) => new Set(prev).add(n.domain_id));
+    try {
+      const d = await domainsApi.checkAllIps(n.domain_id);
+      const ok = d.ips.filter((i) => i.is_blocked === false).length;
+      const banned = d.ips.filter((i) => i.is_blocked === true).length;
+      const unknown = d.ips.length - ok - banned;
+      const parts = [`в порядке ${ok} из ${d.ips.length}`];
+      if (banned) parts.push(`в бане ${banned}`);
+      if (unknown) parts.push(`не удалось проверить ${unknown}`);
+      (banned ? toast.error : toast.success)(`${n.name}: ${parts.join(', ')}`);
+      await reload();
+    } catch (e) {
+      toast.error(`${n.name}: ${e.message}`);
+    } finally {
+      setCheckingIps((prev) => {
+        const next = new Set(prev);
+        next.delete(n.domain_id);
+        return next;
+      });
     }
   };
 
@@ -284,8 +311,8 @@ export default function Nodes() {
         <div className={`node-list ${dragging ? 'is-sorting' : ''}`} ref={listRef}>
           <p className="node-list__hint muted small">
             {canReorder
-              ? 'Порядок можно менять: потяните карточку за ⠿ слева. Порядок сохраняется.'
-              : 'Менять порядок можно, когда выбран фильтр «Все» и поиск пустой.'}
+              ? 'Порядок — как в Remnawave. Можно поменять, потянув карточку за ⠿; «Синхронизировать с Remnawave» вернёт порядок панели.'
+              : 'Порядок — как в Remnawave. Менять его можно, когда выбран фильтр «Все» и поиск пустой.'}
           </p>
           <div className="node-row node-row--head" aria-hidden="true">
             <span />
@@ -369,7 +396,19 @@ export default function Nodes() {
                   </div>
                   <div className="node-row__cell node-row__cell--ip" data-label="IP">
                     {n.domain_id ? (
-                      <IpMeter ok={n.ips_ok} total={n.ips_total} blocked={n.ips_blocked} unknown={n.ips_unknown} />
+                      <span className="node-row__ip">
+                        <IpMeter ok={n.ips_ok} total={n.ips_total} blocked={n.ips_blocked} unknown={n.ips_unknown} />
+                        <button
+                          type="button"
+                          className={`icon-btn node-row__recheck ${checkingIps.has(n.domain_id) ? 'is-busy' : ''}`}
+                          title={checkingIps.has(n.domain_id) ? 'Проверяю IP…' : 'Проверить все IP на бан'}
+                          aria-label="Проверить все IP"
+                          disabled={checkingIps.has(n.domain_id)}
+                          onClick={() => checkIps(n)}
+                        >
+                          <IconRefresh size={15} />
+                        </button>
+                      </span>
                     ) : (
                       <span className="muted">—</span>
                     )}

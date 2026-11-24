@@ -23,6 +23,7 @@ export const domainsApi = {
   switchIp: (id, ip) => api.post(`/domains/${id}/switch`, { ip }),
   check: (id) => api.post(`/domains/${id}/check`),
   checkOneIp: (id, ip) => api.post(`/domains/${id}/ips/check`, { ip }),
+  checkAllIps: (id) => api.post(`/domains/${id}/check-ips`),
   remove: (id) => api.del(`/domains/${id}`),
 };
 
