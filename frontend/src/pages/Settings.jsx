@@ -154,7 +154,7 @@ export default function Settings({ onLogout }) {
     const list = new Set(form.enabled_checkers);
     if (on) list.add(name);
     else list.delete(name);
-    // сохраняем порядок из реестра (первый — основной)
+    // сохраняем порядок из реестра
     set(
       'enabled_checkers',
       meta.checkers.map((c) => c.name).filter((n) => list.has(n)),
@@ -339,14 +339,13 @@ export default function Settings({ onLogout }) {
           </Panel>
 
           <div className="sources">
-            {meta.checkers.map((c, i) => {
+            {meta.checkers.map((c) => {
               const enabled = form.enabled_checkers.includes(c.name);
               const Extra = SOURCE_SETTINGS[c.name];
               return (
                 <section key={c.name} className={`card panel source ${enabled ? 'is-on' : ''}`}>
                   <div className="source__head">
                     <Toggle checked={enabled} onChange={(v) => toggleChecker(c.name, v)} label={c.title} />
-                    <span className={`tag ${i === 0 ? '' : 'tag--muted'}`}>{i === 0 ? 'основной' : 'дополнительный'}</span>
                   </div>
                   <p className="field__hint">{c.description}</p>
                   {checkerStatus[c.name] && <p className="source__status">{checkerStatus[c.name]}</p>}

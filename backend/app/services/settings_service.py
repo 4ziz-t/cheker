@@ -134,7 +134,7 @@ async def migrate(db: AsyncSession) -> None:
         await set_state(db, "migrated_bschek_units", True)
         await db.commit()
 
-    # Red Atlas — новый основной источник: включаем и ставим первым (остальные не трогаем).
+    # Red Atlas — новый источник: включаем и ставим первым (остальные не трогаем).
     if not await get_state(db, "migrated_atlas"):
         row = await db.get(Setting, "enabled_checkers")
         if row:

@@ -357,11 +357,10 @@ function IpTool() {
         />
       </div>
 
-      {/* ---------- Red Atlas — основной ---------- */}
+      {/* ---------- Red Atlas ---------- */}
       <div className="src-col src-col--main">
         <div className="src-col__head">
           <span className="src-col__title">Red Atlas</span>
-          <span className="badge-main">основной</span>
           <span className="muted small">3 точки в России + контроль из Европы + реестр</span>
         </div>
         <button type="button" className="btn btn--primary" disabled={!value || atlas.busy} onClick={runAtlas}>
@@ -378,7 +377,6 @@ function IpTool() {
         )}
       </div>
 
-      <h3 className="ip-tool__extra">Дополнительные источники</h3>
       <div className="ip-tool__cols">
         {/* ---------- Latency Lab ---------- */}
         <div className="src-col">

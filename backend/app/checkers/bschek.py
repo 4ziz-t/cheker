@@ -1,4 +1,4 @@
-"""Дополнительный источник: bschekbot (bsbord.com) — TCP до IP:порт с мобильных операторов РФ.
+"""Источник: bschekbot (bsbord.com) — TCP до IP:порт с мобильных операторов РФ.
 
 API: POST https://bsbord.com/v1/probe (синхронно), заголовок Idempotency-Key.
 Проверка идёт через «единицы» оператор × округ × Белый список (op_key "mts|цфо|off").
@@ -59,7 +59,7 @@ class BschekChecker(BaseChecker):
     name = "bschek"
     title = "bschekbot (bsbord)"
     description = (
-        "Дополнительный источник: TCP до IP:порт через мобильных операторов РФ (единица = оператор × округ × "
+        "TCP до IP:порт через мобильных операторов РФ (единица = оператор × округ × "
         "Белый список). Платно: каждая единица — отдельное списание"
     )
     enabled_by_default = False
