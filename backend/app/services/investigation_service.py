@@ -1,10 +1,10 @@
 """Проверка IP после падения скорости ноды.
 
 Когда у ноды упала скорость, для привязанного к ней домена (адрес ноды = домен/IP)
-запускается «расследование»: текущий IP проверяется через Latency Lab N раз (по умолчанию 3)
+запускается «расследование»: текущий IP проверяется включёнными источниками (основной — Red Atlas) N раз (по умолчанию 3)
 с интервалом (по умолчанию 30 минут).
 
-  • все N проверок показали бан (wire недоступен) → IP в бане: смена A-записи + уведомление;
+  • все N проверок показали бан → IP в бане: смена A-записи + уведомление;
   • хоть одна проверка показала, что IP доступен → проверка останавливается (экономим запросы):
       – скорость к этому времени вернулась к норме → «скорость восстановилась», без тревоги;
       – скорость всё ещё ниже нормы → «IP не в бане, но скорость ноды низкая»;
@@ -218,7 +218,7 @@ async def _step(db: AsyncSession, inv: Investigation) -> None:
                 await domain_service._apply_result(db, domain, entry, res)  # noqa: SLF001
             domain.status, domain.status_message = DomainStatus.OK, ""
             if not by_speed:
-                await _finish(db, inv, S.NOT_BANNED, f"IP {ip} не в бане — по проводу доступен.")
+                await _finish(db, inv, S.NOT_BANNED, f"IP {ip} не в бане — открывается из России.")
                 return
             if node is not None:
                 await db.refresh(node)  # свежая скорость из последнего опроса
@@ -230,7 +230,7 @@ async def _step(db: AsyncSession, inv: Investigation) -> None:
                 await _finish(db, inv, S.NOT_BANNED,
                               f"IP {ip} не в бане. Текущую скорость ноды узнать не удалось.")
                 return
-            text = (f"{inv.node_name or domain.name}: IP {ip} по проводу доступен — это не бан, "
+            text = (f"{inv.node_name or domain.name}: IP {ip} открывается из России — это не бан, "
                     f"но скорость всё ещё низкая ({_speed_text(node)}). "
                     f"Проверьте сервер ноды и канал у хостера.")
             await _finish(db, inv, S.NOT_BANNED, text)

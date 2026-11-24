@@ -21,7 +21,7 @@ EVENT_TYPES: dict[str, str] = {
     "domain_imported": "Домен/IP ноды добавлен из Remnawave",
     "node_offline": "Нода offline",
     "node_online": "Нода снова online",
-    "integration_error": "Ошибки API (Cloudflare, Remnawave, Latency Lab, bschekbot)",
+    "integration_error": "Ошибки API (Cloudflare, Remnawave, Red Atlas, Latency Lab, bschekbot)",
     "security": "Блокировка входа (подбор пароля)",
     "daily_summary": "Ежедневная сводка",
 }
@@ -45,6 +45,8 @@ DEFAULTS: dict[str, Any] = {
     "unlinked_check_enabled": False,
     "unlinked_check_interval_minutes": 60,
     "tcp_check_port": 443,
+    "atlas_fail_percent": 50,          # Red Atlas: бан, если из России не открывается столько % точек
+    "atlas_max_wait_sec": 600,         # сколько ждать свободного места в лимите 6 проверок / 10 мин
     "latencylab_fail_percent": 50,     # запасной вариант, если wire не пришёл
     "bschek_units": [],                # единицы bschekbot: оператор|округ|БС; пусто — выберите в настройках
     "bschek_dpi": "off",               # off — только без Белого списка
@@ -130,6 +132,16 @@ async def migrate(db: AsyncSession) -> None:
         if row and json.loads(row.value) == ["*|цфо|off"]:
             row.value = json.dumps([])
         await set_state(db, "migrated_bschek_units", True)
+        await db.commit()
+
+    # Red Atlas — новый основной источник: включаем и ставим первым (остальные не трогаем).
+    if not await get_state(db, "migrated_atlas"):
+        row = await db.get(Setting, "enabled_checkers")
+        if row:
+            current = json.loads(row.value) or []
+            if "atlas" not in current:
+                row.value = json.dumps(["atlas", *current])
+        await set_state(db, "migrated_atlas", True)
         await db.commit()
 
     # Ноды теперь идут в порядке Remnawave: прежний «свой» порядок сбрасываем один раз.

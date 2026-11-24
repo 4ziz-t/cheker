@@ -238,6 +238,8 @@ class SettingsUpdate(BaseModel):
     unlinked_check_enabled: bool | None = None
     unlinked_check_interval_minutes: int | None = Field(None, ge=5, le=10080)
     tcp_check_port: int | None = Field(None, ge=1, le=65535)
+    atlas_fail_percent: int | None = Field(None, ge=1, le=100)
+    atlas_max_wait_sec: int | None = Field(None, ge=0, le=3600)
     latencylab_fail_percent: int | None = Field(None, ge=1, le=100)
     bschek_units: list[str] | None = None
     bschek_dpi: str | None = Field(None, pattern=r"^(on|off|any)$")

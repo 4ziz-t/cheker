@@ -421,3 +421,11 @@
 .unlinked__settings .input {
   max-width: 120px;
 }
+
+.ip-row__atlas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 2px 0;
+}

@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { domainsApi, eventsApi, investigationsApi } from '../api/index.js';
+import AtlasResult from '../components/AtlasResult.jsx';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
 import EventItem from '../components/EventItem.jsx';
 import InvestigationList from '../components/InvestigationList.jsx';
@@ -25,13 +26,20 @@ import '../styles/domains.css';
 
 function IpDetails({ ip }) {
   const details = ip.details || {};
-  const lines = Object.entries(details).map(([name, d]) => describeCheck(name, d));
-  if (!lines.length) return null;
+  const entries = Object.entries(details);
+  if (!entries.length) return null;
   return (
     <div className="ip-row__details">
-      {lines.map((l) => (
-        <span key={l}>{l}</span>
-      ))}
+      {entries.map(([name, d]) =>
+        name === 'atlas' && !d.error && d.status ? (
+          <span key={name} className="ip-row__atlas">
+            <b className="muted small">Red Atlas</b>
+            <AtlasResult d={d} compact />
+          </span>
+        ) : (
+          <span key={name}>{describeCheck(name, d)}</span>
+        ),
+      )}
     </div>
   );
 }
@@ -372,7 +380,7 @@ export default function DomainDetail() {
               />
             )}
             <div className="field">
-              <span className="field__label">Порт для проверки в Latency Lab</span>
+              <span className="field__label">Порт для проверки IP</span>
               <div className="port-field">
                 <input
                   className="input"
@@ -407,8 +415,8 @@ export default function DomainDetail() {
 
           {!isIpEntry && domain.ips.length > 1 && (
             <p className="field__hint">
-              Резервные IP проверяются, только когда нужно переключиться (или кнопкой ↻). Каждая проверка — 1 запрос
-              Latency Lab.
+              Резервные IP проверяются, только когда нужно переключиться (или кнопкой ↻). Каждая проверка — 1 запрос к
+              источникам (у Red Atlas лимит 6 проверок за 10 минут).
             </p>
           )}
           {domain.ips.length === 0 ? (

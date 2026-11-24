@@ -926,3 +926,238 @@ textarea.input {
 .ip-meter__flag--warn {
   color: var(--warn);
 }
+
+/* ---------- результат Red Atlas ---------- */
+.atlas-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.atlas-pill::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.atlas-pill--lg {
+  padding: 5px 12px;
+  font-size: 14px;
+}
+.atlas-pill--ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+.atlas-pill--warn {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.atlas-pill--bad {
+  color: var(--bad);
+  background: var(--bad-soft);
+}
+.atlas-pill--muted {
+  color: var(--text-2);
+  background: var(--surface-3);
+}
+
+.atlas {
+  --a: var(--ok);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.atlas--warn {
+  --a: var(--warn);
+}
+.atlas--bad {
+  --a: var(--bad);
+}
+.atlas--muted {
+  --a: var(--muted);
+}
+
+.atlas__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.atlas__reason {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.atlas__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.atlas-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  min-width: 0;
+}
+.atlas-stat__label {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.atlas-stat__value {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.atlas-stat__value .muted {
+  font-size: 13px;
+  font-weight: 500;
+}
+.atlas-stat__bar {
+  display: flex;
+  gap: 3px;
+}
+.atlas-stat__seg {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-3);
+}
+.atlas-stat__seg--ok {
+  background: var(--ok);
+}
+.atlas-stat__seg--bad {
+  background: var(--bad);
+}
+
+.atlas__points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.atlas-point {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--muted);
+}
+.atlas-point + .atlas-point {
+  border-top: 1px solid var(--border);
+}
+.atlas-point--ok {
+  border-left-color: var(--ok);
+}
+.atlas-point--bad {
+  border-left-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 6%, transparent);
+}
+.atlas-point__region {
+  display: inline-grid;
+  place-items: center;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--surface-3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+.atlas-point__place {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.atlas-point__place b {
+  font-weight: 600;
+}
+.atlas-point__place .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.atlas-point__rtt {
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.atlas-point__state {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.atlas-point__state--ok {
+  color: var(--ok);
+}
+.atlas-point__state--bad {
+  color: var(--bad);
+}
+.atlas-point__state--muted {
+  color: var(--muted);
+}
+
+.atlas__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+/* одной строкой — в списке IP домена */
+.atlas-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.atlas-inline__dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.atlas-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--surface-3);
+}
+.atlas-dot--ok {
+  background: var(--ok);
+}
+.atlas-dot--bad {
+  background: var(--bad);
+}
+.atlas-inline__dots .small {
+  margin-left: 4px;
+}
+
+@media (max-width: 560px) {
+  .atlas__stats {
+    grid-template-columns: 1fr;
+  }
+  .atlas-stat {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+  .atlas-stat > .muted,
+  .atlas-stat__bar {
+    grid-column: 1 / -1;
+  }
+  .atlas-point {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+  }
+  .atlas-point__rtt {
+    display: none;
+  }
+}

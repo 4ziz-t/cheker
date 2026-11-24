@@ -106,6 +106,8 @@ async def tool_check(data: ToolCheckIn, db: AsyncSession = Depends(get_db)):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Выберите хотя бы одного оператора")
         cfg["bschek_units"] = units
 
+    # ручная проверка не должна висеть долго в очереди лимита Red Atlas
+    cfg["atlas_max_wait_sec"] = min(int(cfg.get("atlas_max_wait_sec") or 0), 45)
     res = await check_ip(ip, [data.checker], port, cfg)
     r = res.results[0] if res.results else None
     return {

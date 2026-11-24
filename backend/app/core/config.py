@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     telegram_api_url: str = "https://api.telegram.org"
 
     # --- Чекеры ---
+    atlas_url: str = "https://atlas.redline.ac/api/v1"  # Red Atlas, без ключа
     latencylab_url: str = "https://console.latencylab.ru"
     latencylab_token: str = ""
     bschek_url: str = "https://bsbord.com/v1"

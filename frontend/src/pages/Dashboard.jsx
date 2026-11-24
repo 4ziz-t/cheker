@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { dashboardApi, settingsApi } from '../api/index.js';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
+import AtlasResult from '../components/AtlasResult.jsx';
 import BschekOperatorPicker, { countCovered } from '../components/BschekOperatorPicker.jsx';
 import EventItem from '../components/EventItem.jsx';
 import InvestigationList from '../components/InvestigationList.jsx';
@@ -301,6 +302,7 @@ function useCheck() {
 function IpTool() {
   const [target, setTarget] = useState('');
   const [port, setPort] = useState('');
+  const atlas = useCheck();
   const latency = useCheck();
   const bschek = useCheck();
 
@@ -322,6 +324,7 @@ function IpTool() {
   const value = target.trim();
   const covered = countCovered(units, selected);
 
+  const runAtlas = () => atlas.run(() => dashboardApi.check({ target: value, checker: 'atlas', port: port || null }));
   const runLatency = () =>
     latency.run(() => dashboardApi.check({ target: value, checker: 'latencylab', port: port || null }));
   const runBschek = () =>
@@ -354,6 +357,28 @@ function IpTool() {
         />
       </div>
 
+      {/* ---------- Red Atlas — основной ---------- */}
+      <div className="src-col src-col--main">
+        <div className="src-col__head">
+          <span className="src-col__title">Red Atlas</span>
+          <span className="badge-main">основной</span>
+          <span className="muted small">3 точки в России + контроль из Европы + реестр</span>
+        </div>
+        <button type="button" className="btn btn--primary" disabled={!value || atlas.busy} onClick={runAtlas}>
+          {atlas.busy ? <Spinner size={16} /> : <IconSearch size={18} />}
+          <span>{atlas.busy ? 'Проверяю…' : 'Проверить в Red Atlas'}</span>
+        </button>
+        {atlas.error && <div className="alert alert--bad">{atlas.error}</div>}
+        {atlas.result && (
+          <div className="src-result">
+            <ResultHead result={atlas.result} />
+            {atlas.result.error && <p className="src-col__error">{atlas.result.error}</p>}
+            <AtlasResult d={atlas.result.details} />
+          </div>
+        )}
+      </div>
+
+      <h3 className="ip-tool__extra">Дополнительные источники</h3>
       <div className="ip-tool__cols">
         {/* ---------- Latency Lab ---------- */}
         <div className="src-col">
@@ -411,7 +436,7 @@ function IpTool() {
           )}
         </div>
       </div>
-      {(latency.busy || bschek.busy) && (
+      {(atlas.busy || latency.busy || bschek.busy) && (
         <p className="field__hint">Проверка может занять до пары минут — источники отвечают не сразу.</p>
       )}
     </section>

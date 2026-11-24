@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { dashboardApi, settingsApi } from '../api/index.js';
 import { IconLogout, IconSend } from '../components/Icons.jsx';
 import IntegrationsPanel from '../components/IntegrationsPanel.jsx';
+import AtlasSettings from '../components/AtlasSettings.jsx';
 import LatencyLabSettings from '../components/LatencyLabSettings.jsx';
 import BschekSettings from '../components/BschekSettings.jsx';
 import PageHeader, { ErrorBox } from '../components/PageHeader.jsx';
@@ -21,6 +22,7 @@ const TABS = [
 
 // какие источники имеют свой блок настроек
 const SOURCE_SETTINGS = {
+  atlas: AtlasSettings,
   latencylab: LatencyLabSettings,
   bschek: BschekSettings,
 };

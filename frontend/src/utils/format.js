@@ -100,6 +100,7 @@ export function parseIpList(text) {
 }
 
 export const CHECKER_TITLES = {
+  atlas: 'Red Atlas',
   latencylab: 'Latency Lab',
   bschek: 'bschekbot',
 };
@@ -124,6 +125,12 @@ export function formatSpeed(bps) {
 export function describeCheck(name, d) {
   const title = CHECKER_TITLES[name] || name;
   const parts = [];
+  if (name === 'atlas' && !d.error) {
+    if (d.status_text) parts.push(d.status_text.toLowerCase());
+    if (d.ru_total) parts.push(`из России ${d.ru_ok}/${d.ru_total}`);
+    if (d.registry_blocked) parts.push('в реестре блокировок');
+    return `${title}: ${parts.join(' · ') || (d.blocked ? 'в бане' : 'чисто')}`;
+  }
   if (d.wire_ok === false) parts.push('по проводу недоступен');
   else if (d.wire_ok === true) parts.push('по проводу доступен');
   if (d.label) parts.push(d.label);
