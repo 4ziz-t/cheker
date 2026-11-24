@@ -309,11 +309,6 @@ export default function Nodes() {
         />
       ) : (
         <div className={`node-list ${dragging ? 'is-sorting' : ''}`} ref={listRef}>
-          <p className="node-list__hint muted small">
-            {canReorder
-              ? 'Порядок — как в Remnawave. Можно поменять, потянув карточку за ⠿; «Синхронизировать с Remnawave» вернёт порядок панели.'
-              : 'Порядок — как в Remnawave. Менять его можно, когда выбран фильтр «Все» и поиск пустой.'}
-          </p>
           <div className="node-row node-row--head" aria-hidden="true">
             <span />
             <span>Нода</span>
