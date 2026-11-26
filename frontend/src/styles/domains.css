@@ -434,63 +434,203 @@
 .ip-checks {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 6px;
-  padding: 6px 8px;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-elev) 60%, transparent);
+  background: var(--bg-elev);
+  transition: border-color 0.15s, opacity 0.15s;
 }
 .ip-checks.is-custom {
-  border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+  background: linear-gradient(120deg, color-mix(in srgb, var(--warn) 7%, transparent), transparent 60%), var(--bg-elev);
 }
+.ip-checks.is-saving {
+  opacity: 0.75;
+}
+
 .ip-checks__head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 8px;
-  margin-bottom: 2px;
 }
-.ip-checks__head .link-sm {
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
+.ip-checks__title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
-.ip-check {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 4px 2px;
-  border-radius: 6px;
-  font-size: 12.5px;
+.ip-checks__mode {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
   color: var(--text-2);
-  cursor: pointer;
-}
-.ip-check:hover {
   background: var(--surface-3);
 }
-.ip-check input {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  margin: 1px 0 0;
-  accent-color: var(--accent);
+.ip-checks__mode--custom {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.ip-checks__reset {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
   cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
-.ip-check__body {
+.ip-checks__reset:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.ip-checks__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ip-check {
+  --v: var(--muted);
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--v);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, opacity 0.15s;
+}
+.ip-check--ok {
+  --v: var(--ok);
+}
+.ip-check--bad {
+  --v: var(--bad);
+}
+.ip-check--warn {
+  --v: var(--warn);
+}
+.ip-check:hover {
+  border-color: var(--border-strong);
+  border-left-color: var(--v);
+}
+.ip-check.is-off {
+  --v: var(--surface-3);
+  background: transparent;
+  border-style: dashed;
+  border-left-style: solid;
+}
+.ip-check.is-off .ip-check__main {
+  opacity: 0.55;
+}
+
+/* свой чекбокс: настоящий input скрыт, но доступен с клавиатуры */
+.ip-check__input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+.ip-check__box {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg);
+  color: transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+}
+.ip-check:hover .ip-check__box {
+  border-color: var(--accent);
+}
+.ip-check__input:checked + .ip-check__box {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+.ip-check:active .ip-check__box {
+  transform: scale(0.92);
+}
+.ip-check__input:focus-visible + .ip-check__box {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.ip-check__input:disabled + .ip-check__box {
+  opacity: 0.6;
+}
+
+.ip-check__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
-  word-break: break-word;
+  transition: opacity 0.15s;
 }
-.ip-check.is-off .ip-check__body {
-  opacity: 0.5;
+.ip-check__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
 }
-.ip-check__off {
-  margin-left: 6px;
-  padding: 0 6px;
+.ip-check__name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ip-check__verdict {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.ip-check__verdict--ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+.ip-check__verdict--bad {
+  color: var(--bad);
+  background: var(--bad-soft);
+}
+.ip-check__verdict--warn {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.ip-check__verdict--muted {
+  color: var(--text-2);
+  background: var(--surface-3);
+}
+.ip-check__off,
+.ip-check__stale {
+  padding: 1px 8px;
   border-radius: 999px;
   font-size: 11px;
   color: var(--muted);
-  background: var(--surface-3);
+  border: 1px dashed var(--border-strong);
   white-space: nowrap;
+}
+.ip-check__text {
+  font-size: 12.5px;
+  color: var(--text-2);
+  word-break: break-word;
+}
+
+.ip-checks__hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
 }

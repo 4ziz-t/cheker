@@ -662,3 +662,304 @@ a.speed-list__row:hover {
 .src-col--main .src-col__head {
   justify-content: flex-start;
 }
+
+/* ================= Ручная проверка IP или домена ================= */
+.ipt {
+  gap: 14px;
+}
+
+/* строка поиска */
+.ipt-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px auto;
+  gap: 8px;
+}
+.ipt-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 8px 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--muted);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  cursor: text;
+}
+.ipt-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  color: var(--accent);
+}
+.ipt-field__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 15.5px;
+}
+.ipt-field__input::placeholder {
+  color: var(--muted);
+}
+.ipt-field__clear {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.ipt-field__clear:hover {
+  color: var(--text);
+}
+.ipt-port {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 48px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  cursor: text;
+}
+.ipt-port:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.ipt-port span {
+  font-size: 10.5px;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.ipt-port input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+}
+.ipt-go {
+  height: 48px;
+  padding: 0 22px;
+  border-radius: 12px;
+  font-size: 15px;
+}
+
+/* выбор источников */
+.ipt-sources {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.ipt-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.ipt-source:hover {
+  border-color: var(--border-strong);
+}
+.ipt-source.is-on {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: linear-gradient(120deg, var(--accent-soft), transparent 70%), var(--bg-elev);
+  color: var(--text);
+}
+.ipt-source__check {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  color: transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.ipt-source.is-on .ipt-source__check {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+.ipt-source__text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.ipt-source__text b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.ipt-source__text span {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ipt-source__dot {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.ipt-source__dot--ok {
+  background: var(--ok);
+}
+.ipt-source__dot--bad {
+  background: var(--bad);
+}
+.ipt-source__dot--warn {
+  background: var(--warn);
+}
+
+/* операторы bschekbot — сворачиваемый блок */
+.ipt-ops {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+.ipt-ops__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.ipt-ops__toggle svg {
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.ipt-ops.is-open .ipt-ops__toggle svg {
+  transform: rotate(90deg);
+}
+.ipt-ops__body {
+  padding: 0 12px 12px;
+}
+
+/* общий итог */
+.ipt-summary {
+  --s: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--s) 45%, var(--border));
+  background: color-mix(in srgb, var(--s) 9%, var(--bg-elev));
+}
+.ipt-summary--ok {
+  --s: var(--ok);
+}
+.ipt-summary--bad {
+  --s: var(--bad);
+}
+.ipt-summary--warn {
+  --s: var(--warn);
+}
+.ipt-summary__target {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ipt-summary__ip {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.ipt-summary__verdict {
+  font-weight: 700;
+  color: var(--s);
+}
+
+/* карточки результатов */
+.ipt-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+.ipt-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+.ipt-card--atlas {
+  grid-column: 1 / -1;
+}
+.ipt-card--atlas .atlas-stat,
+.ipt-card--atlas .atlas__points {
+  background: var(--surface);
+}
+.ipt-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ipt-card__title {
+  font-size: 14.5px;
+}
+.ipt-card__busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ipt-card__again {
+  margin-left: auto;
+}
+
+@media (max-width: 760px) {
+  .ipt-search {
+    grid-template-columns: minmax(0, 1fr) 92px;
+  }
+  .ipt-go {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: center;
+  }
+  .ipt-sources {
+    grid-template-columns: 1fr;
+  }
+  .ipt-results {
+    grid-template-columns: 1fr;
+  }
+  .ipt-summary__verdict {
+    width: 100%;
+  }
+}

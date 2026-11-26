@@ -102,6 +102,8 @@ async def on_speed_drop(db: AsyncSession, node: Node, current: float, baseline: 
             f"Проверяю IP домена {', '.join(started)}: {cfg['investigation_checks']} раза "
             f"каждые {cfg['investigation_interval_minutes']} мин.",
             level="warning", node=node.name, domain=started[0], emoji="📉",
+            # в Telegram — одним сообщением с итогом проверки (см. _step), здесь только запись в журнал
+            notify=False,
         )
     elif not domains:
         await record(
@@ -150,8 +152,10 @@ async def _recovered(db: AsyncSession, inv: Investigation, node: Node, ip: str |
     else:
         text = f"{label}: скорость восстановилась ({_speed_text(node)}) — проверка IP не понадобилась."
     await _finish(db, inv, S.RECOVERED, text)
+    # о падении в Telegram не писали (сообщение приходит одно — с итогом), поэтому и тут молчим
     await record(db, "speed_drop", "Скорость ноды восстановилась", text,
-                 level="success", node=inv.node_name or None, domain=inv.domain_name, emoji="📈")
+                 level="success", node=inv.node_name or None, domain=inv.domain_name, emoji="📈",
+                 notify=False)
 
 
 async def _step(db: AsyncSession, inv: Investigation) -> None:
@@ -207,7 +211,10 @@ async def _step(db: AsyncSession, inv: Investigation) -> None:
             if inv.attempts >= inv.checks_total * 2:
                 await _finish(db, inv, S.FAILED, f"Не удалось проверить IP: {'; '.join(res.errors)}")
                 await record(db, "integration_error", "Проверка IP не удалась",
-                             f"{domain.name} ({ip}): {'; '.join(res.errors)}", level="error", domain=domain.name)
+                             f"{domain.name} ({ip}): {'; '.join(res.errors)}", level="error", domain=domain.name,
+                             tg_text=await notices.speed_check_failed(
+                                 db, domain, ip, _speed_text(node) if node else "", '; '.join(res.errors))
+                             if by_speed else None)
             else:
                 inv.next_check_at = utcnow() + timedelta(minutes=interval)
                 await db.commit()
@@ -239,7 +246,7 @@ async def _step(db: AsyncSession, inv: Investigation) -> None:
             await _finish(db, inv, S.NOT_BANNED, text)
             await record(db, "node_suspect", "IP не в бане, но скорость ноды низкая", text,
                          level="warning", node=inv.node_name or None, domain=domain.name, ip=ip,
-                         tg_text=await notices.speed_problem(db, domain, [ip]))
+                         tg_text=await notices.speed_problem(db, domain, [ip], _speed_text(node)))
             return
 
         inv.blocked_count += 1

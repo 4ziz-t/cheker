@@ -17,6 +17,7 @@ import {
   IconServer,
   IconShield,
   IconSwap,
+  IconX,
 } from '../components/Icons.jsx';
 import { onlyLink } from '../components/OnlyBanner.jsx';
 import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
@@ -219,28 +220,6 @@ function Verdict({ result }) {
   return <Badge tone="warn">Не удалось проверить</Badge>;
 }
 
-function ResultHead({ result }) {
-  return (
-    <div className="src-result__head">
-      <span className="src-result__target">
-        {result.domain && (
-          <>
-            <span className="mono">{result.domain}</span>
-            <span className="muted"> → </span>
-          </>
-        )}
-        <span className="mono ip-tool__ip">{result.ip}</span>
-        <span className="muted small">
-          {' '}
-          · порт {result.port}
-          {result.domain && ` · IP из: ${IP_SOURCE[result.ip_source] || result.ip_source}`}
-        </span>
-      </span>
-      <Verdict result={result} />
-    </div>
-  );
-}
-
 function LatencyDetails({ d }) {
   return (
     <dl className="src-facts">
@@ -328,16 +307,33 @@ function useCheck() {
   return { busy, result, error, run };
 }
 
+const SOURCES = [
+  { key: 'atlas', title: 'Red Atlas', hint: '3 точки в РФ + Европа + реестр' },
+  { key: 'latencylab', title: 'Latency Lab', hint: 'проверка с провода' },
+  { key: 'bschek', title: 'bschekbot', hint: 'мобильные операторы, платно' },
+];
+const SOURCES_KEY = 'cheker.iptool.sources';
+
+function loadSources() {
+  try {
+    const v = JSON.parse(localStorage.getItem(SOURCES_KEY) || 'null');
+    if (Array.isArray(v) && v.length) return v.filter((k) => SOURCES.some((s) => s.key === k));
+  } catch {
+    /* хранилище недоступно */
+  }
+  return ['atlas'];
+}
+
 function IpTool() {
   const [target, setTarget] = useState('');
   const [port, setPort] = useState('');
-  const atlas = useCheck();
-  const latency = useCheck();
-  const bschek = useCheck();
+  const [sources, setSources] = useState(loadSources);
+  const checks = { atlas: useCheck(), latencylab: useCheck(), bschek: useCheck() };
 
   const [units, setUnits] = useState(null);
   const [unitsError, setUnitsError] = useState('');
   const [selected, setSelected] = useState([]);
+  const [opsOpen, setOpsOpen] = useState(false);
 
   useEffect(() => {
     settingsApi
@@ -352,120 +348,207 @@ function IpTool() {
 
   const value = target.trim();
   const covered = countCovered(units, selected);
+  const busy = SOURCES.some((src) => checks[src.key].busy);
 
-  const runAtlas = () => atlas.run(() => dashboardApi.check({ target: value, checker: 'atlas', port: port || null }));
-  const runLatency = () =>
-    latency.run(() => dashboardApi.check({ target: value, checker: 'latencylab', port: port || null }));
-  const runBschek = () =>
-    bschek.run(() =>
-      dashboardApi.check({ target: value, checker: 'bschek', port: port || null, units: selected }),
+  const toggleSource = (key) => {
+    setSources((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      const ordered = SOURCES.map((src) => src.key).filter((k) => next.includes(k));
+      try {
+        localStorage.setItem(SOURCES_KEY, JSON.stringify(ordered));
+      } catch {
+        /* не сохранилось — не страшно */
+      }
+      return ordered;
+    });
+  };
+
+  const runOne = (key) =>
+    checks[key].run(() =>
+      dashboardApi.check({
+        target: value,
+        checker: key,
+        port: port || null,
+        ...(key === 'bschek' ? { units: selected } : {}),
+      }),
     );
 
+  const canRun = (key) => value && !checks[key].busy && (key !== 'bschek' || selected.length > 0);
+
+  const submit = (e) => {
+    e.preventDefault();
+    sources.filter(canRun).forEach(runOne);
+  };
+
+  // общий итог по уже пришедшим ответам
+  const done = SOURCES.map((src) => ({ ...src, r: checks[src.key].result })).filter((x) => x.r);
+  const first = done[0]?.r;
+  const banned = done.filter((x) => x.r.blocked === true);
+  const clean = done.filter((x) => x.r.blocked === false);
+  const overall = !done.length
+    ? null
+    : banned.length
+      ? { tone: 'bad', text: `В бане по данным: ${banned.map((x) => x.title).join(', ')}` }
+      : clean.length
+        ? { tone: 'ok', text: `Доступен${clean.length > 1 ? ` · подтвердили ${clean.length} источника` : ''}` }
+        : { tone: 'warn', text: 'Не удалось проверить' };
+
+  const shown = SOURCES.filter((src) => {
+    const c = checks[src.key];
+    return c.busy || c.result || c.error;
+  });
+
+  const details = (key, result) => {
+    if (key === 'atlas') return <AtlasResult d={result.details} />;
+    if (key === 'latencylab') return <LatencyDetails d={result.details || {}} />;
+    return <BschekDetails d={result.details || {}} />;
+  };
+
   return (
-    <section className="card panel">
+    <section className="card panel ipt">
       <div className="panel__head panel__head--stack">
         <h2 className="panel__title">Ручная проверка IP или домена</h2>
-        <span className="muted small">Ничего не меняет — только показывает, доступен ли IP</span>
-      </div>
-      <div className="ip-tool">
-        <input
-          className="input mono"
-          placeholder="1.2.3.4 или de1.example.com"
-          value={target}
-          onChange={(e) => setTarget(e.target.value)}
-          autoCapitalize="none"
-          spellCheck={false}
-        />
-        <input
-          className="input mono ip-tool__port"
-          placeholder="порт"
-          value={port}
-          onChange={(e) => setPort(e.target.value.replace(/\D/g, '').slice(0, 5))}
-          inputMode="numeric"
-          title="Порт для проверки (пусто — из настроек)"
-        />
+        <span className="muted small">Ничего не меняет — только показывает, доступен ли IP из России</span>
       </div>
 
-      {/* ---------- Red Atlas ---------- */}
-      <div className="src-col src-col--main">
-        <div className="src-col__head">
-          <span className="src-col__title">Red Atlas</span>
-          <span className="muted small">3 точки в России + контроль из Европы + реестр</span>
-        </div>
-        <button type="button" className="btn btn--primary" disabled={!value || atlas.busy} onClick={runAtlas}>
-          {atlas.busy ? <Spinner size={16} /> : <IconSearch size={18} />}
-          <span>{atlas.busy ? 'Проверяю…' : 'Проверить в Red Atlas'}</span>
+      <form className="ipt-search" onSubmit={submit}>
+        <label className="ipt-field">
+          <IconSearch size={18} />
+          <input
+            className="ipt-field__input mono"
+            placeholder="1.2.3.4 или de1.example.com"
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            autoCapitalize="none"
+            autoComplete="off"
+            spellCheck={false}
+            enterKeyHint="search"
+          />
+          {target && (
+            <button type="button" className="ipt-field__clear" aria-label="Очистить" onClick={() => setTarget('')}>
+              <IconX size={16} />
+            </button>
+          )}
+        </label>
+        <label className="ipt-port" title="Порт для проверки (пусто — из настроек)">
+          <span>порт</span>
+          <input
+            className="mono"
+            placeholder="443"
+            value={port}
+            onChange={(e) => setPort(e.target.value.replace(/\D/g, '').slice(0, 5))}
+            inputMode="numeric"
+          />
+        </label>
+        <button type="submit" className="btn btn--primary ipt-go" disabled={!value || !sources.some(canRun)}>
+          {busy ? <Spinner size={16} /> : <IconSearch size={18} />}
+          <span>{busy ? 'Проверяю…' : 'Проверить'}</span>
         </button>
-        {atlas.error && <div className="alert alert--bad">{atlas.error}</div>}
-        {atlas.result && (
-          <div className="src-result">
-            <ResultHead result={atlas.result} />
-            {atlas.result.error && <p className="src-col__error">{atlas.result.error}</p>}
-            <AtlasResult d={atlas.result.details} />
-          </div>
-        )}
+      </form>
+
+      <div className="ipt-sources" role="group" aria-label="Источники проверки">
+        {SOURCES.map((src) => {
+          const on = sources.includes(src.key);
+          const c = checks[src.key];
+          const state = c.busy ? 'busy' : c.result ? (c.result.blocked === true ? 'bad' : c.result.blocked === false ? 'ok' : 'warn') : c.error ? 'warn' : '';
+          return (
+            <button
+              key={src.key}
+              type="button"
+              className={`ipt-source ${on ? 'is-on' : ''} ${state ? `is-${state}` : ''}`}
+              aria-pressed={on}
+              onClick={() => toggleSource(src.key)}
+            >
+              <span className="ipt-source__check" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="11" height="11">
+                  <path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <span className="ipt-source__text">
+                <b>{src.title}</b>
+                <span>{src.hint}</span>
+              </span>
+              {c.busy && <Spinner size={14} />}
+              {!c.busy && state && <span className={`ipt-source__dot ipt-source__dot--${state}`} />}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="ip-tool__cols">
-        {/* ---------- Latency Lab ---------- */}
-        <div className="src-col">
-          <div className="src-col__head">
-            <span className="src-col__title">Latency Lab</span>
-            <span className="muted small">проверка с провода</span>
-          </div>
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={!value || latency.busy}
-            onClick={runLatency}
-          >
-            {latency.busy ? <Spinner size={16} /> : <IconSearch size={18} />}
-            <span>{latency.busy ? 'Проверяю…' : 'Проверить в Latency Lab'}</span>
+      {sources.includes('bschek') && (
+        <div className={`ipt-ops ${opsOpen ? 'is-open' : ''}`}>
+          <button type="button" className="ipt-ops__toggle" onClick={() => setOpsOpen((v) => !v)}>
+            <span>
+              Операторы bschekbot · единиц: <b>{covered}</b>
+              <span className="muted"> (каждая списывается отдельно)</span>
+            </span>
+            <IconChevronRight size={16} />
           </button>
-          {latency.error && <div className="alert alert--bad">{latency.error}</div>}
-          {latency.result && (
-            <div className="src-result">
-              <ResultHead result={latency.result} />
-              {latency.result.error && <p className="src-col__error">{latency.result.error}</p>}
-              <LatencyDetails d={latency.result.details || {}} />
+          {opsOpen && (
+            <div className="ipt-ops__body">
+              {unitsError && <span className="field__hint text-warn">Операторы недоступны: {unitsError}</span>}
+              {!units && !unitsError && <Spinner size={16} />}
+              {units && <BschekOperatorPicker units={units} value={selected} onChange={setSelected} compact />}
             </div>
           )}
         </div>
-
-        {/* ---------- bschekbot ---------- */}
-        <div className="src-col">
-          <div className="src-col__head">
-            <span className="src-col__title">bschekbot</span>
-            <span className="muted small">мобильные операторы</span>
-          </div>
-          {unitsError && <span className="field__hint text-warn">Операторы недоступны: {unitsError}</span>}
-          {!units && !unitsError && <Spinner size={16} />}
-          {units && <BschekOperatorPicker units={units} value={selected} onChange={setSelected} compact />}
-          <span className="field__hint">
-            Будет проверено единиц (оператор × округ): <b>{covered}</b> — каждая списывается отдельно.
-          </span>
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={!value || bschek.busy || !selected.length}
-            onClick={runBschek}
-          >
-            {bschek.busy ? <Spinner size={16} /> : <IconSearch size={18} />}
-            <span>{bschek.busy ? 'Проверяю…' : 'Проверить в bschekbot'}</span>
-          </button>
-          {bschek.error && <div className="alert alert--bad">{bschek.error}</div>}
-          {bschek.result && (
-            <div className="src-result">
-              <ResultHead result={bschek.result} />
-              {bschek.result.error && <p className="src-col__error">{bschek.result.error}</p>}
-              <BschekDetails d={bschek.result.details || {}} />
-            </div>
-          )}
-        </div>
-      </div>
-      {(atlas.busy || latency.busy || bschek.busy) && (
-        <p className="field__hint">Проверка может занять до пары минут — источники отвечают не сразу.</p>
       )}
+
+      {overall && first && (
+        <div className={`ipt-summary ipt-summary--${overall.tone}`}>
+          <span className="ipt-summary__target">
+            {first.domain && (
+              <>
+                <span className="mono">{first.domain}</span>
+                <span className="muted"> → </span>
+              </>
+            )}
+            <span className="mono ipt-summary__ip">{first.ip}</span>
+            <span className="muted small">
+              {' '}
+              · порт {first.port}
+              {first.domain && ` · IP из: ${IP_SOURCE[first.ip_source] || first.ip_source}`}
+            </span>
+          </span>
+          <span className="ipt-summary__verdict">{overall.text}</span>
+        </div>
+      )}
+
+      {shown.length > 0 && (
+        <div className="ipt-results">
+          {shown.map((src) => {
+            const c = checks[src.key];
+            return (
+              <article key={src.key} className={`ipt-card ipt-card--${src.key}`}>
+                <header className="ipt-card__head">
+                  <b className="ipt-card__title">{src.title}</b>
+                  {c.result && <Verdict result={c.result} />}
+                  {c.busy && (
+                    <span className="muted small ipt-card__busy">
+                      <Spinner size={14} /> проверяю…
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="icon-btn ipt-card__again"
+                    title="Проверить ещё раз"
+                    aria-label="Проверить ещё раз"
+                    disabled={!canRun(src.key)}
+                    onClick={() => runOne(src.key)}
+                  >
+                    <IconRefresh size={15} />
+                  </button>
+                </header>
+                {c.error && <div className="alert alert--bad">{c.error}</div>}
+                {c.result?.error && <p className="src-col__error">{c.result.error}</p>}
+                {c.result && details(src.key, c.result)}
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      {busy && <p className="field__hint">Проверка может занять до пары минут — источники отвечают не сразу.</p>}
     </section>
   );
 }

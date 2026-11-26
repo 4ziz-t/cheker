@@ -49,53 +49,75 @@ function IpDetails({ ip, checkers, defaults, saving, onChange }) {
     onChange(same ? null : ordered);
   };
 
+  const verdict = (d) => {
+    if (!d) return { tone: 'muted', label: 'не проверялся' };
+    if (d.error && d.blocked == null) return { tone: 'warn', label: 'ошибка' };
+    if (d.blocked === true) return { tone: 'bad', label: 'в бане' };
+    if (d.blocked === false) return { tone: 'ok', label: 'доступен' };
+    return { tone: 'muted', label: 'нет ответа' };
+  };
+  // describeCheck начинается с «Название: …» — название показываем отдельно
+  const summary = (name, d) => {
+    const text = describeCheck(name, d);
+    const prefix = `${CHECKER_TITLES[name] || name}: `;
+    return text.startsWith(prefix) ? text.slice(prefix.length) : text;
+  };
+
   return (
-    <div className={`ip-checks ${custom ? 'is-custom' : ''}`}>
+    <div className={`ip-checks ${custom ? 'is-custom' : ''} ${saving ? 'is-saving' : ''}`}>
       <div className="ip-checks__head">
-        <span className="muted small">Проверки для этого IP</span>
-        {custom ? (
-          <>
-            <span className="tag tag--warn">свои</span>
-            <button type="button" className="link-sm" disabled={saving} onClick={() => onChange(null)}>
-              как в настройках
-            </button>
-          </>
-        ) : (
-          <span className="tag tag--muted">как в настройках</span>
-        )}
+        <span className="ip-checks__title">Проверки для этого IP</span>
+        <span className={`ip-checks__mode ${custom ? 'ip-checks__mode--custom' : ''}`}>
+          {custom ? 'свои' : 'как в настройках'}
+        </span>
         {saving && <Spinner size={14} />}
+        {custom && (
+          <button type="button" className="ip-checks__reset" disabled={saving} onClick={() => onChange(null)}>
+            сбросить
+          </button>
+        )}
       </div>
-      {names.map((name) => {
-        const d = details[name];
-        const on = active.includes(name);
-        return (
-          <label key={name} className={`ip-check ${on ? 'is-on' : 'is-off'}`}>
-            <input
-              type="checkbox"
-              checked={on}
-              disabled={saving}
-              onChange={(e) => toggle(name, e.target.checked)}
-            />
-            <span className="ip-check__body">
-              {name === 'atlas' && d && !d.error && d.status ? (
-                <span className="ip-row__atlas">
-                  <b className="small">{title(name)}</b>
-                  <AtlasResult d={d} compact />
+      <div className="ip-checks__list">
+        {names.map((name) => {
+          const d = details[name];
+          const on = active.includes(name);
+          const v = verdict(d);
+          return (
+            <label key={name} className={`ip-check ip-check--${v.tone} ${on ? 'is-on' : 'is-off'}`}>
+              <input
+                type="checkbox"
+                className="ip-check__input"
+                checked={on}
+                disabled={saving}
+                onChange={(e) => toggle(name, e.target.checked)}
+              />
+              <span className="ip-check__box" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="12" height="12">
+                  <path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <span className="ip-check__main">
+                <span className="ip-check__top">
+                  <b className="ip-check__name">{title(name)}</b>
+                  <span className={`ip-check__verdict ip-check__verdict--${v.tone}`}>{v.label}</span>
+                  {!on && <span className="ip-check__off">не учитывается</span>}
+                  {d?.stale && <span className="ip-check__stale">прошлая проверка</span>}
                 </span>
-              ) : d ? (
-                <span>{describeCheck(name, d)}</span>
-              ) : (
-                <span>
-                  <b className="small">{title(name)}</b>
-                  <span className="muted small"> — этим источником ещё не проверялся</span>
+                <span className="ip-check__text">
+                  {name === 'atlas' && d && !d.error && d.status ? (
+                    <AtlasResult d={d} compact />
+                  ) : d ? (
+                    summary(name, d)
+                  ) : (
+                    'этим источником IP ещё не проверялся'
+                  )}
                 </span>
-              )}
-              {d?.stale && <span className="muted small"> · ответ с прошлой проверки</span>}
-              {!on && <span className="ip-check__off">не учитывается</span>}
-            </span>
-          </label>
-        );
-      })}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      {!custom && <p className="ip-checks__hint">Снимите галочку, чтобы для этого IP не учитывать источник</p>}
     </div>
   );
 }

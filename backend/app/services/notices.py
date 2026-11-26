@@ -73,17 +73,36 @@ async def banned_no_switch(db: AsyncSession, domain: Domain, reason: str) -> str
     ])
 
 
-async def speed_problem(db: AsyncSession, domain: Domain, ips: list[str]) -> str:
-    """Ⓜ️ Проблемы со скоростью — IP не в бане, но трафик не идёт."""
-    return "\n".join([
+async def speed_problem(db: AsyncSession, domain: Domain, ips: list[str], speed: str = "") -> str:
+    """Ⓜ️ Проблемы со скоростью — IP не в бане, но трафик не идёт. Одно сообщение: падение + итог."""
+    lines = [
         _head("Ⓜ️", "Проблемы со скоростью"),
         f"Нода: {esc(await node_name(db, domain.name))}",
         f"Домен: <code>{esc(domain.name)}</code>",
         f"IP: {', '.join(f'<code>{esc(ip)}</code>' for ip in ips) or '—'}",
+    ]
+    if speed:
+        lines.append(f"Скорость: {esc(speed)}")
+    lines += [
         "",
         "Статус: IP не забанен, но трафик и скорость перестали идти.",
         "Возможно, упала выходящая нода.",
-    ])
+    ]
+    return "\n".join(lines)
+
+
+async def speed_check_failed(db: AsyncSession, domain: Domain, ip: str, speed: str, error: str) -> str:
+    """⚠️ Скорость упала, а проверить IP не удалось (источники не ответили)."""
+    lines = [
+        _head("⚠️", "Скорость упала, проверить IP не удалось"),
+        f"Нода: {esc(await node_name(db, domain.name))}",
+        f"Домен: <code>{esc(domain.name)}</code>",
+        f"IP: <code>{esc(ip)}</code>",
+    ]
+    if speed:
+        lines.append(f"Скорость: {esc(speed)}")
+    lines.append(f"Ошибка: {esc(error or '—')}")
+    return "\n".join(lines)
 
 
 def node_down(n: Node, down_seconds: float) -> str:
