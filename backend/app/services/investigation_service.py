@@ -13,6 +13,7 @@
   • запуск вручную (кнопка «Запустить») — просто проверка IP: о «проблемах с нодой» не сообщает;
   • ошибки проверки не засчитываются; после 2×N попыток — «проверить не удалось».
 """
+import asyncio
 import json
 import logging
 from datetime import timedelta
@@ -21,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import SessionLocal
+from app.core.tasks import spawn
 from app.core.timeutils import utcnow
 from app.models import Domain, Investigation, Node
 from app.models.domain import DomainKind, DomainStatus
@@ -93,6 +95,7 @@ async def on_speed_drop(db: AsyncSession, node: Node, current: float, baseline: 
 
     cfg = await settings_service.get_all(db)
     if started:
+        spawn(tick())  # первая проверка IP — сразу, не ждём планировщика
         await record(
             db, "speed_drop", "Упала скорость ноды",
             f"{node.name} ({node.address}): {reason}.\n"
@@ -188,9 +191,9 @@ async def _step(db: AsyncSession, inv: Investigation) -> None:
             return
         inv.ip = ip
 
-        res = await cache.get(ip, domain.check_port)
-        await domain_service._report_checker_errors(db, res)  # noqa: SLF001
         entry = next((e for e in domain.ips if e.ip == ip), None)
+        res = await cache.get(ip, domain.check_port, entry.checker_list if entry else None)
+        await domain_service._report_checker_errors(db, res)  # noqa: SLF001
 
         results = _results(inv)
         results.append({"at": utcnow().isoformat(timespec="seconds") + "Z", "ip": ip,
@@ -256,9 +259,12 @@ async def _step(db: AsyncSession, inv: Investigation) -> None:
         await _finish(db, inv, S.BANNED, summary)
 
 
+_tick_lock = asyncio.Lock()
+
+
 async def tick() -> None:
     """Выполнить все проверки, у которых подошло время."""
-    async with SessionLocal() as db:
+    async with _tick_lock, SessionLocal() as db:
         due = (await db.execute(
             select(Investigation).where(
                 Investigation.status == S.ACTIVE, Investigation.next_check_at <= utcnow()

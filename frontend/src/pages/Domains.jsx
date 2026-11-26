@@ -5,6 +5,7 @@ import AddDomainModal from '../components/AddDomainModal.jsx';
 import { DomainStatusBadge } from '../components/Badge.jsx';
 import { IconChevronRight, IconPlus, IconSearch } from '../components/Icons.jsx';
 import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
+import OnlyBanner, { useOnlyFilter } from '../components/OnlyBanner.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
 import Toggle from '../components/Toggle.jsx';
@@ -41,17 +42,19 @@ export default function Domains() {
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
+  const { only, title: onlyTitle, clear: clearOnly } = useOnlyFilter();
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (data || []).filter((d) => {
+      if (only && !only.has(String(d.id))) return false;
       if (q && !d.name.includes(q) && !(d.current_ip || '').includes(q)) return false;
       if (filter === 'disabled') return !d.enabled;
       if (filter === 'ok') return d.enabled && d.status === 'ok';
       if (filter === 'problems') return d.enabled && d.status !== 'ok';
       return true;
     });
-  }, [data, query, filter]);
+  }, [data, query, filter, only]);
 
   const toggleAuto = async (domain, value) => {
     try {
@@ -77,6 +80,8 @@ export default function Domains() {
       />
 
       {data && <UnlinkedCheckPanel unlinkedCount={data.filter((d) => d.enabled && !d.nodes.length).length} />}
+
+      {only && <OnlyBanner title={onlyTitle} count={list.length} onClear={clearOnly} />}
 
       <div className="toolbar">
         <div className="search">

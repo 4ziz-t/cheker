@@ -11,7 +11,12 @@ from app.core.database import SessionLocal
 from app.core.timeutils import local_tz, utcnow
 from app.models import Event, UserSession
 from app.services import investigation_service, settings_service
-from app.services.domain_service import run_cycle, unlinked_domain_ids
+from app.services.domain_service import (
+    check_many,
+    refresh_dns,
+    run_cycle,
+    unlinked_domain_ids,
+)
 from app.services.node_service import poll_nodes
 from app.services.summary import send_summary
 
@@ -25,6 +30,7 @@ class Scheduler:
         self._wake_unlinked = asyncio.Event()
         self.next_unlinked_check: float | None = None
         self._wake_nodes = asyncio.Event()
+        self._wake_dns = asyncio.Event()
         self.next_node_poll: float | None = None
 
     def start(self) -> None:
@@ -34,6 +40,7 @@ class Scheduler:
             asyncio.create_task(self._summary_loop(), name="summary"),
         ]
         self._tasks.append(asyncio.create_task(self._nodes_loop(), name="nodes"))
+        self._tasks.append(asyncio.create_task(self._dns_loop(), name="dns"))
 
     async def stop(self) -> None:
         for t in self._tasks:
@@ -44,6 +51,7 @@ class Scheduler:
         """Пересчитать расписание (после изменения настроек)."""
         self._wake_unlinked.set()
         self._wake_nodes.set()
+        self._wake_dns.set()
 
     async def _sleep_or_wake(self, event: asyncio.Event, seconds: float) -> bool:
         """True — разбудили досрочно."""
@@ -63,6 +71,22 @@ class Scheduler:
             except Exception:  # noqa: BLE001
                 log.exception("Ошибка проверок после падения скорости")
             await self._sleep_or_wake(self._wake_investigations, 20)
+
+    async def _dns_loop(self) -> None:
+        """Сверка IP доменов с DNS: если A-запись поменяли вручную, Cheker это увидит и проверит новый IP."""
+        await asyncio.sleep(20)
+        while True:
+            minutes = 5
+            try:
+                async with SessionLocal() as db:
+                    minutes = max(int(await settings_service.get(db, "dns_refresh_minutes")), 1)
+                    changed = await refresh_dns(db)
+                if changed:
+                    log.info("A-записи изменились: %s", ", ".join(f"{d.name} → {ip}" for d, _, ip in changed))
+                    await check_many([d.id for d, _, _ in changed])
+            except Exception:  # noqa: BLE001
+                log.exception("Ошибка сверки IP доменов с DNS")
+            await self._sleep_or_wake(self._wake_dns, minutes * 60)
 
     def wake_investigations(self) -> None:
         self._wake_investigations.set()

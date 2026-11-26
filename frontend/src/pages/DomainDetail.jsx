@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { domainsApi, eventsApi, investigationsApi } from '../api/index.js';
+import { domainsApi, eventsApi, investigationsApi, settingsApi } from '../api/index.js';
 import AtlasResult from '../components/AtlasResult.jsx';
 import Badge, { DomainStatusBadge } from '../components/Badge.jsx';
 import EventItem from '../components/EventItem.jsx';
@@ -21,25 +21,81 @@ import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
 import Toggle from '../components/Toggle.jsx';
 import usePolling from '../hooks/usePolling.js';
-import { describeCheck, formatDateTime, formatRelative, ipState, isIPv4, parseIpList } from '../utils/format.js';
+import { CHECKER_TITLES, describeCheck, formatDateTime, formatRelative, ipState, isIPv4, parseIpList } from '../utils/format.js';
 import '../styles/domains.css';
 
-function IpDetails({ ip }) {
+/**
+ * Ответы источников по IP. Галочкой выбирается, какие проверки решают судьбу именно этого IP
+ * (например, если один источник ошибочно видит бан, а сервер на деле работает).
+ */
+function IpDetails({ ip, checkers, defaults, saving, onChange }) {
   const details = ip.details || {};
-  const entries = Object.entries(details);
-  if (!entries.length) return null;
+  const custom = Array.isArray(ip.checkers) && ip.checkers.length > 0;
+  const active = custom ? ip.checkers : defaults;
+  // все известные источники + те, по которым есть старые ответы
+  const names = [...checkers.map((c) => c.name)];
+  Object.keys(details).forEach((n) => n !== 'none' && !names.includes(n) && names.push(n));
+  if (!names.length) return null;
+  const title = (n) => checkers.find((c) => c.name === n)?.title || CHECKER_TITLES[n] || n;
+
+  const toggle = (name, on) => {
+    const next = on ? [...active, name] : active.filter((n) => n !== name);
+    if (!next.length) {
+      onChange(null, 'Оставьте хотя бы одну проверку');
+      return;
+    }
+    const ordered = names.filter((n) => next.includes(n));
+    const same = ordered.length === defaults.length && ordered.every((n) => defaults.includes(n));
+    onChange(same ? null : ordered);
+  };
+
   return (
-    <div className="ip-row__details">
-      {entries.map(([name, d]) =>
-        name === 'atlas' && !d.error && d.status ? (
-          <span key={name} className="ip-row__atlas">
-            <b className="muted small">Red Atlas</b>
-            <AtlasResult d={d} compact />
-          </span>
+    <div className={`ip-checks ${custom ? 'is-custom' : ''}`}>
+      <div className="ip-checks__head">
+        <span className="muted small">Проверки для этого IP</span>
+        {custom ? (
+          <>
+            <span className="tag tag--warn">свои</span>
+            <button type="button" className="link-sm" disabled={saving} onClick={() => onChange(null)}>
+              как в настройках
+            </button>
+          </>
         ) : (
-          <span key={name}>{describeCheck(name, d)}</span>
-        ),
-      )}
+          <span className="tag tag--muted">как в настройках</span>
+        )}
+        {saving && <Spinner size={14} />}
+      </div>
+      {names.map((name) => {
+        const d = details[name];
+        const on = active.includes(name);
+        return (
+          <label key={name} className={`ip-check ${on ? 'is-on' : 'is-off'}`}>
+            <input
+              type="checkbox"
+              checked={on}
+              disabled={saving}
+              onChange={(e) => toggle(name, e.target.checked)}
+            />
+            <span className="ip-check__body">
+              {name === 'atlas' && d && !d.error && d.status ? (
+                <span className="ip-row__atlas">
+                  <b className="small">{title(name)}</b>
+                  <AtlasResult d={d} compact />
+                </span>
+              ) : d ? (
+                <span>{describeCheck(name, d)}</span>
+              ) : (
+                <span>
+                  <b className="small">{title(name)}</b>
+                  <span className="muted small"> — этим источником ещё не проверялся</span>
+                </span>
+              )}
+              {d?.stale && <span className="muted small"> · ответ с прошлой проверки</span>}
+              {!on && <span className="ip-check__off">не учитывается</span>}
+            </span>
+          </label>
+        );
+      })}
     </div>
   );
 }
@@ -117,6 +173,15 @@ export default function DomainDetail() {
   const [notes, setNotes] = useState(null);
   const [port, setPort] = useState(null);
   const [checkingIp, setCheckingIp] = useState('');
+  const [savingChecks, setSavingChecks] = useState('');
+  const [checkerMeta, setCheckerMeta] = useState({ list: [], defaults: [] });
+
+  useEffect(() => {
+    settingsApi
+      .get()
+      .then((s) => setCheckerMeta({ list: s.checkers || [], defaults: s.values?.enabled_checkers || [] }))
+      .catch(() => {});
+  }, []);
 
   if (loading && !domain) {
     return (
@@ -274,6 +339,27 @@ export default function DomainDetail() {
       toast.error(e.message);
     } finally {
       setStartingInv(false);
+    }
+  };
+
+  const saveIpCheckers = async (ip, list, warning) => {
+    if (warning) {
+      toast.error(warning);
+      return;
+    }
+    setSavingChecks(ip);
+    try {
+      const updated = await domainsApi.setIpCheckers(domain.id, ip, list);
+      apply(updated);
+      const entry = updated.ips.find((i) => i.ip === ip);
+      const state = entry?.is_blocked === true ? 'в бане' : entry?.is_blocked === false ? 'доступен' : 'не проверен';
+      toast.success(
+        list ? `${ip}: учитываются только выбранные проверки — ${state}` : `${ip}: проверки как в настройках — ${state}`,
+      );
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setSavingChecks('');
     }
   };
 
@@ -439,7 +525,13 @@ export default function DomainDetail() {
                         {ip.last_checked_at ? `проверен ${formatRelative(ip.last_checked_at)}` : 'ещё не проверялся'}
                         {ip.blocked_since && ` · в бане с ${formatDateTime(ip.blocked_since)}`}
                       </span>
-                      <IpDetails ip={ip} />
+                      <IpDetails
+                        ip={ip}
+                        checkers={checkerMeta.list}
+                        defaults={checkerMeta.defaults}
+                        saving={savingChecks === ip}
+                        onChange={(list, warning) => saveIpCheckers(ip.ip, list, warning)}
+                      />
                     </div>
                     {!isIpEntry && <div className="ip-row__actions">
                       {!isCurrent && (

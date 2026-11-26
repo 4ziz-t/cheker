@@ -12,6 +12,7 @@ from app.schemas import (
     DomainIPsUpdate,
     DomainOut,
     DomainUpdate,
+    IpCheckersIn,
     SwitchIn,
     is_ipv4,
 )
@@ -54,7 +55,9 @@ def _set_ips(domain: Domain, ips: list[str]) -> None:
 
 @router.get("", response_model=list[DomainOut])
 async def list_domains(db: AsyncSession = Depends(get_db)):
-    domains = (await db.execute(select(Domain))).scalars().all()
+    # домены отключённых в Remnawave нод не показываем
+    hidden = await domain_service.hidden_domain_names(db)
+    domains = [d for d in (await db.execute(select(Domain))).scalars().all() if d.name not in hidden]
     # домены нод — в порядке нод (как в Remnawave), домены без ноды — после них, по имени
     order = await node_service.domain_order(db)
     domains = sorted(domains, key=lambda d: (order.get(d.name, len(order)), d.name))
@@ -171,11 +174,25 @@ async def check_one_ip(domain_id: int, data: SwitchIn, db: AsyncSession = Depend
     return _out(d, await _nodes_by_address(db))
 
 
+@router.put("/{domain_id}/ips/checkers", response_model=DomainOut)
+async def set_ip_checkers(domain_id: int, data: IpCheckersIn, db: AsyncSession = Depends(get_db)):
+    """Выбрать проверки для одного IP (галочки на странице домена). Новых запросов не тратит."""
+    d = await _get(db, domain_id)
+    try:
+        await domain_service.set_ip_checkers(db, d, data.ip, data.checkers or None)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    db.expunge_all()
+    d = await db.get(Domain, domain_id)
+    return _out(d, await _nodes_by_address(db))
+
+
 @router.post("/{domain_id}/check", response_model=DomainOut)
 async def check_domain(domain_id: int, db: AsyncSession = Depends(get_db)):
     d = await _get(db, domain_id)
-    await domain_service.run_cycle([d.id])
-    d = await db.get(Domain, domain_id, populate_existing=True)
+    await domain_service.check_now(d.id)
+    db.expunge_all()  # проверка шла в своей сессии — читаем домен и его IP заново
+    d = await db.get(Domain, domain_id)
     if d is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Домен не найден")
     return _out(d, await _nodes_by_address(db))
@@ -185,8 +202,9 @@ async def check_domain(domain_id: int, db: AsyncSession = Depends(get_db)):
 async def check_all_ips(domain_id: int, db: AsyncSession = Depends(get_db)):
     """Проверить все IP домена (текущий и резервные) — кнопка ↻ на вкладке «Ноды»."""
     d = await _get(db, domain_id)
-    await domain_service.run_cycle([d.id], all_ips=True)
-    d = await db.get(Domain, domain_id, populate_existing=True)
+    await domain_service.check_now(d.id, all_ips=True)
+    db.expunge_all()  # проверка шла в своей сессии — читаем домен и его IP заново
+    d = await db.get(Domain, domain_id)
     if d is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Домен не найден")
     return _out(d, await _nodes_by_address(db))

@@ -50,6 +50,11 @@ class LoginIn(BaseModel):
 
 
 # ------------------------------------------------------------ domains
+class IpCheckersIn(BaseModel):
+    ip: str
+    checkers: list[str] | None = None  # None или пусто — как в общих настройках
+
+
 class DomainIPOut(ORM):
     id: int
     ip: str
@@ -59,6 +64,18 @@ class DomainIPOut(ORM):
     last_checked_at: UTCDatetime | None
     last_error: str | None
     details: dict[str, Any] | None = None
+    # свои проверки для этого IP; None — как в общих настройках
+    checkers: list[str] | None = None
+
+    @field_validator("checkers", mode="before")
+    @classmethod
+    def _parse_checkers(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except ValueError:
+                return None
+        return v if isinstance(v, list) and v else None
 
     @field_validator("details", mode="before")
     @classmethod
@@ -231,6 +248,7 @@ class SettingsUpdate(BaseModel):
     speed_baseline_hours: int | None = Field(None, ge=1, le=48)
     speed_min_baseline_mbps: float | None = Field(None, ge=0, le=100000)
     speed_confirm_minutes: int | None = Field(None, ge=0, le=240)
+    dns_refresh_minutes: int | None = Field(None, ge=1, le=1440)
     investigation_checks: int | None = Field(None, ge=1, le=10)
     investigation_interval_minutes: int | None = Field(None, ge=1, le=720)
     investigation_cooldown_minutes: int | None = Field(None, ge=0, le=10080)

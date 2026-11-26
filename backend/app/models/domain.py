@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from sqlalchemy import (
@@ -82,5 +83,17 @@ class DomainIP(Base):
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON с ответами чекеров
+    # JSON-список источников только для этого IP; None — как в общих настройках
+    checkers: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    @property
+    def checker_list(self) -> list[str] | None:
+        if not self.checkers:
+            return None
+        try:
+            value = json.loads(self.checkers)
+        except ValueError:
+            return None
+        return [str(v) for v in value] if isinstance(value, list) and value else None
 
     domain: Mapped[Domain] = relationship(back_populates="ips")

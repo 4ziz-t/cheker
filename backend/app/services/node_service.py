@@ -132,10 +132,12 @@ async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
         if speeds is not None and rn.uuid in speeds:
             n.speed_now_bps = int(speeds[rn.uuid])  # realtime — самое точное «сейчас»
 
+        # падение видно сразу: по скорости за последний опрос (а если её нет — по среднему за окно)
+        level = n.speed_now_bps if n.speed_now_bps is not None else info.current_bps
         dropped = (
-            info.current_bps is not None and info.baseline_bps is not None
+            level is not None and info.baseline_bps is not None
             and info.baseline_bps >= min_base
-            and info.current_bps <= info.baseline_bps * (1 - drop_share)
+            and level <= info.baseline_bps * (1 - drop_share)
         )
         if not dropped:
             n.speed_drop_since = None
@@ -145,7 +147,7 @@ async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
             n.speed_drop_since = now
         if now - n.speed_drop_since >= confirm and rn.uuid not in _drop_handled:
             _drop_handled.add(rn.uuid)
-            triggered.append((n, info.current_bps, info.baseline_bps))
+            triggered.append((n, level, info.baseline_bps))
     await tracker.flush(db)
     await db.commit()
 
@@ -302,11 +304,13 @@ async def poll_nodes(sync: bool = False) -> int | None:
         for rn in remote:
             n = existing.get(rn.uuid)
             is_new = n is None
+            was_disabled = bool(n.is_disabled) if n is not None else False
             if is_new:
                 n = Node(uuid=rn.uuid)
                 db.add(n)
-                if _addr(rn.address):
-                    new_addresses.add(_addr(rn.address))
+            # новая нода или нода, которую снова включили в панели, — сразу проверяем её IP
+            if (is_new or was_disabled) and not rn.is_disabled and _addr(rn.address):
+                new_addresses.add(_addr(rn.address))
 
             n.panel_url = panel
             n.position = rn.position
@@ -365,10 +369,11 @@ async def poll_nodes(sync: bool = False) -> int | None:
             await db.execute(delete(Node).where(Node.uuid.in_(gone)))
         await db.commit()
 
-        await _import_addresses(db, remote)
+        # отключённые в панели ноды в «Домены» не добавляем
+        await _import_addresses(db, [rn for rn in remote if not rn.is_disabled])
         if restored:
-            await _import_addresses(db, restored, force=True)
-            new_addresses |= {_addr(rn.address) for rn in restored if _addr(rn.address)}
+            await _import_addresses(db, [rn for rn in restored if not rn.is_disabled], force=True)
+            new_addresses |= {_addr(rn.address) for rn in restored if _addr(rn.address) and not rn.is_disabled}
         if sync:
             # синхронизация возвращает порядок нод как в Remnawave
             await settings_service.set_state(db, ORDER_KEY, [])
@@ -382,7 +387,7 @@ async def poll_nodes(sync: bool = False) -> int | None:
             )).scalars().all())
             if ids:
                 log.info("Новые ноды: проверяю IP доменов %s", sorted(new_addresses))
-                spawn(domain_service.run_cycle(ids, all_ips=True))
+                spawn(domain_service.check_many(ids, all_ips=True))
 
         for kind, n in notifications:
             if kind == "offline":

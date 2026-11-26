@@ -20,7 +20,7 @@ from app.models.domain import DomainKind, DomainSource, DomainStatus
 from app.schemas import is_ipv4
 from app.services import settings_service
 from app.services.events import errors, record
-from app.services.ip_check import AggregatedResult, IPCheckCache
+from app.services.ip_check import AggregatedResult, IPCheckCache, aggregate_stored
 
 log = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ async def _find_candidate(
         entry = ips[(idx + step) % n]
         if entry.ip == current_ip:
             continue
-        res = await cache.get(entry.ip, domain.check_port)
+        res = await cache.get(entry.ip, domain.check_port, entry.checker_list)
         await _report_checker_errors(db, res)
         await _apply_result(db, domain, entry, res)
         await db.commit()
@@ -233,7 +233,16 @@ async def _report_checker_errors(db: AsyncSession, res: AggregatedResult) -> Non
 async def _apply_result(db: AsyncSession, domain: Domain, entry: DomainIP, res: AggregatedResult) -> None:
     now = utcnow()
     entry.last_checked_at = now
-    entry.details = json.dumps(res.to_details(), ensure_ascii=False)
+    details = res.to_details()
+    # ответы источников, которые в этот раз не спрашивали (выключены для IP), оставляем с пометкой
+    try:
+        old = json.loads(entry.details) if entry.details else {}
+    except ValueError:
+        old = {}
+    for name, value in old.items() if isinstance(old, dict) else []:
+        if name not in details and name != "none" and isinstance(value, dict):
+            details[name] = {**value, "stale": True}
+    entry.details = json.dumps(details, ensure_ascii=False)
     entry.last_error = "; ".join(res.errors) or None
     if res.blocked is None:
         return
@@ -294,7 +303,7 @@ async def process_domain(
         # 2. Проверяем только текущий IP — экономим запросы к источникам.
         #    Резервные IP проверяются, только когда нужно на что-то переключиться.
         current_entry = next((e for e in domain.ips if e.ip == domain.current_ip), None)
-        res = await cache.get(domain.current_ip, domain.check_port)
+        res = await cache.get(domain.current_ip, domain.check_port, current_entry.checker_list if current_entry else None)
         await _report_checker_errors(db, res)
         if current_entry is not None:
             await _apply_result(db, domain, current_entry, res)
@@ -304,7 +313,7 @@ async def process_domain(
             for entry in domain.ips:
                 if entry.ip == domain.current_ip:
                     continue
-                other = await cache.get(entry.ip, domain.check_port)
+                other = await cache.get(entry.ip, domain.check_port, entry.checker_list)
                 await _report_checker_errors(db, other)
                 await _apply_result(db, domain, entry, other)
         await db.commit()
@@ -401,12 +410,73 @@ async def check_single_ip(db: AsyncSession, domain: Domain, ip: str) -> None:
     cfg = await settings_service.get_all(db)
     cache = IPCheckCache(cfg)
     async with domain_lock(domain.id):
-        res = await cache.get(ip, domain.check_port)
+        res = await cache.get(ip, domain.check_port, entry.checker_list)
         await _report_checker_errors(db, res)
         await _apply_result(db, domain, entry, res)
-        if ip == domain.current_ip and res.blocked is not None:
-            domain.last_checked_at = utcnow()
+        domain.last_checked_at = utcnow()  # «Проверен …» обновляется при любой проверке
         await db.commit()
+        # проверили текущий IP — статус домена должен сразу показывать результат
+        if ip == domain.current_ip:
+            await _status_from_current(db, domain, res, cache, cfg)
+
+
+async def set_ip_checkers(db: AsyncSession, domain: Domain, ip: str, checkers: list[str] | None) -> None:
+    """Свои источники для одного IP (None — как в общих настройках).
+
+    Итог сразу пересчитывается по уже сохранённым ответам выбранных источников — без новых запросов.
+    """
+    entry = next((e for e in domain.ips if e.ip == ip), None)
+    if entry is None:
+        raise ValueError("IP нет в списке домена")
+    registry = all_checkers()
+    if checkers is not None:
+        checkers = [c for c in dict.fromkeys(checkers) if c in registry]
+        if not checkers:
+            raise ValueError("Выберите хотя бы одну проверку")
+    cfg = await settings_service.get_all(db)
+    async with domain_lock(domain.id):
+        entry.checkers = json.dumps(checkers) if checkers else None
+        await db.commit()
+        names = checkers or list(cfg["enabled_checkers"])
+        try:
+            stored = json.loads(entry.details) if entry.details else {}
+        except ValueError:
+            stored = {}
+        res = aggregate_stored(ip, stored if isinstance(stored, dict) else {}, names)
+        if res is None or res.blocked is None or res.blocked == entry.is_blocked:
+            return
+        prev = entry.is_blocked
+        entry.is_blocked = res.blocked
+        entry.blocked_since = (entry.blocked_since or utcnow()) if res.blocked else None
+        role = "текущий IP домена" if ip == domain.current_ip else "резервный IP"
+        if res.blocked and prev is not True:
+            await record(db, "ip_blocked", "IP в бане", f"{ip} — {domain.name} ({role}), по выбранным проверкам",
+                         level="warning", domain=domain.name, ip=ip, emoji="⛔")
+        elif not res.blocked and prev is True:
+            await record(db, "ip_unblocked", "IP разбанен", f"{ip} — {domain.name} ({role}), по выбранным проверкам",
+                         level="success", domain=domain.name, ip=ip, emoji="🟢")
+        await db.commit()
+        if ip == domain.current_ip:
+            await _status_from_current(db, domain, res, IPCheckCache(cfg), cfg)
+
+
+async def _status_from_current(
+    db: AsyncSession, domain: Domain, res: AggregatedResult, cache: IPCheckCache, cfg: dict
+) -> None:
+    """Статус домена по результату проверки текущего IP (так же, как при полной проверке)."""
+    if domain.kind == DomainKind.IP:
+        if res.blocked is True:
+            await _set_status(db, domain, DomainStatus.BLOCKED, "IP в бане. Это IP-адрес, сменить его автоматически нельзя")
+        elif res.blocked is False:
+            await _set_status(db, domain, DomainStatus.OK, "")
+        return
+    if res.blocked is True:
+        await handle_current_banned(db, domain, cache, domain.auto_switch and cfg["auto_switch_enabled"])
+    elif res.blocked is False:
+        domain.no_ips_alerted = False
+        await _set_status(db, domain, DomainStatus.OK, "")
+    else:
+        await _set_status(db, domain, DomainStatus.ERROR, f"Не удалось проверить IP: {'; '.join(res.errors) or '—'}")
 
 
 async def _process_ip_entry(db: AsyncSession, domain: Domain, cache: IPCheckCache) -> None:
@@ -417,7 +487,7 @@ async def _process_ip_entry(db: AsyncSession, domain: Domain, cache: IPCheckCach
         await db.commit()
         await db.refresh(domain)
     entry = domain.ips[0]
-    res = await cache.get(entry.ip, domain.check_port)
+    res = await cache.get(entry.ip, domain.check_port, entry.checker_list)
     await _report_checker_errors(db, res)
     await _apply_result(db, domain, entry, res)
     if res.blocked is True:
@@ -439,6 +509,56 @@ async def _safe_switch(db: AsyncSession, domain: Domain, ip: str, reason: str) -
 
 # ---------------------------------------------------------------- цикл
 
+async def hidden_domain_names(db: AsyncSession) -> set[str]:
+    """Домены/IP нод, отключённых в Remnawave: в Cheker они не показываются и не проверяются.
+
+    Если тот же адрес есть и у включённой ноды — домен остаётся.
+    """
+    from app.models import Node  # локальный импорт, чтобы не было цикла моделей
+
+    rows = (await db.execute(select(Node.address, Node.is_disabled))).all()
+    on = {(a or "").strip().lower().rstrip(".") for a, disabled in rows if not disabled}
+    off = {(a or "").strip().lower().rstrip(".") for a, disabled in rows if disabled}
+    return {a for a in off - on if a}
+
+
+async def refresh_dns(db: AsyncSession) -> list[tuple[Domain, str | None, str]]:
+    """Сверить текущий IP доменов с DNS (A-запись могли поменять у хостера/в Cloudflare вручную).
+
+    Возвращает домены, у которых IP изменился: (домен, старый IP, новый IP).
+    """
+    hidden = await hidden_domain_names(db)
+    domains = (await db.execute(
+        select(Domain).where(Domain.enabled.is_(True), Domain.kind == DomainKind.DOMAIN)
+    )).scalars().all()
+    changed: list[tuple[Domain, str | None, str]] = []
+    for d in domains:
+        if d.name in hidden:
+            continue
+        ip = await resolve_dns(d.name)
+        if not ip or ip == d.current_ip:
+            continue
+        async with domain_lock(d.id):
+            await db.refresh(d)
+            old = d.current_ip
+            if ip == old:
+                continue
+            d.current_ip = ip
+            if not any(e.ip == ip for e in d.ips):
+                # нового адреса нет в списке — добавляем его в начало, остальные сдвигаем
+                for e in d.ips:
+                    e.position += 1
+                d.ips.append(DomainIP(ip=ip, position=0))
+            await db.commit()
+            changed.append((d, old, ip))
+            await record(
+                db, "dns_changed", "A-запись изменилась",
+                f"{d.name}: {old or '—'} → {ip} (изменили вне Cheker). Проверяю новый IP",
+                level="info", domain=d.name, ip=ip, emoji="🔄",
+            )
+    return changed
+
+
 async def unlinked_domain_ids(db: AsyncSession) -> list[int]:
     """Включённые домены/IP, адрес которых не совпадает ни с одной нодой Remnawave."""
     from app.models import Node  # локальный импорт, чтобы не было цикла моделей
@@ -449,6 +569,33 @@ async def unlinked_domain_ids(db: AsyncSession) -> list[int]:
     }
     rows = (await db.execute(select(Domain.id, Domain.name).where(Domain.enabled.is_(True)))).all()
     return [i for i, name in rows if name not in addresses]
+
+
+async def check_many(domain_ids: list[int], all_ips: bool = False) -> None:
+    """Проверить несколько доменов по очереди, не дожидаясь общего цикла (новые ноды и т.п.)."""
+    for i in domain_ids:
+        await check_now(i, all_ips=all_ips)
+
+
+async def check_now(domain_id: int, all_ips: bool = False) -> None:
+    """Проверка одного домена по кнопке — сразу, не дожидаясь, пока закончится общий цикл.
+
+    Общий цикл может долго стоять в очереди лимита Red Atlas; кнопка не должна ждать его целиком.
+    Одновременную проверку одного домена исключает domain_lock внутри process_domain.
+    """
+    async with SessionLocal() as db:
+        cfg = await settings_service.get_all(db)
+        d = await db.get(Domain, domain_id)
+        if d is None:
+            return
+        try:
+            await process_domain(db, d, IPCheckCache(cfg), cfg["auto_switch_enabled"], all_ips)
+        except Exception as e:  # noqa: BLE001
+            log.exception("Ошибка проверки домена %s", d.name)
+            await db.rollback()
+            await record(db, "integration_error", "Ошибка проверки домена",
+                         f"{d.name}: {e}", level="error", domain=d.name)
+
 
 async def run_cycle(domain_ids: list[int] | None = None, all_ips: bool = False) -> bool:
     """Полная проверка доменов. Возвращает False, если цикл уже идёт.
@@ -469,6 +616,9 @@ async def run_cycle(domain_ids: list[int] | None = None, all_ips: bool = False) 
                 if domain_ids is not None:
                     q = select(Domain).where(Domain.id.in_(domain_ids))
                 domains = (await db.execute(q)).scalars().all()
+                if domain_ids is None:
+                    hidden = await hidden_domain_names(db)
+                    domains = [d for d in domains if d.name not in hidden]
                 for d in domains:
                     try:
                         await process_domain(db, d, cache, cfg["auto_switch_enabled"], all_ips)

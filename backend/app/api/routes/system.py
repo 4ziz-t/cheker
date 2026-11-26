@@ -13,7 +13,7 @@ from app.core.tasks import spawn
 from app.core.timeutils import utcnow
 from app.models import Domain, DomainIP, Event, Investigation, Node
 from app.schemas import DomainCreate, EventOut, InvestigationOut, normalize_ip
-from app.services import node_service, settings_service
+from app.services import domain_service, node_service, settings_service
 from app.services.domain_service import cycle_state, detect_current_ip, run_cycle
 from app.services.events import errors
 from app.services.ip_check import check_ip
@@ -128,10 +128,14 @@ async def tool_check(data: ToolCheckIn, db: AsyncSession = Depends(get_db)):
 async def dashboard(db: AsyncSession = Depends(get_db)):
     nodes = (await db.execute(select(Node))).scalars().all()
     active = [n for n in nodes if not n.is_disabled]
-    domains = (await db.execute(select(Domain).order_by(Domain.name))).scalars().all()
+    hidden = await domain_service.hidden_domain_names(db)  # домены отключённых нод
+    domains = [d for d in (await db.execute(select(Domain).order_by(Domain.name))).scalars().all()
+               if d.name not in hidden]
     enabled = [d for d in domains if d.enabled]
+    visible_ids = {d.id for d in domains}
 
-    ip_rows = (await db.execute(select(DomainIP.ip, DomainIP.is_blocked))).all()
+    ip_rows = [(ip, b) for ip, b, did in (await db.execute(
+        select(DomainIP.ip, DomainIP.is_blocked, DomainIP.domain_id))).all() if did in visible_ids]
     unique: dict[str, bool | None] = {}
     for ip, blocked in ip_rows:
         prev = unique.get(ip)
@@ -175,7 +179,7 @@ async def dashboard(db: AsyncSession = Depends(get_db)):
         "nodes": {
             "total": len(active),
             "online": sum(1 for n in active if n.is_connected),
-            "disabled": len(nodes) - len(active),
+            "disabled": 0,  # отключённые в панели ноды в Cheker не показываются
             "offline": [
                 {"uuid": n.uuid, "name": n.name, "address": n.address,
                  "since": n.offline_since.isoformat(timespec="seconds") + "Z" if n.offline_since else None,

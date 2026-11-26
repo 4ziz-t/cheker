@@ -8,8 +8,8 @@ const STATUS = {
   down: { tone: 'muted', label: 'Не работает нигде' },
 };
 
+// пометка «в реестре» показывается отдельно и статус не перекрывает: решает доступность из России
 function statusOf(d) {
-  if (d.registry_blocked) return { tone: 'bad', label: 'В реестре блокировок' };
   return STATUS[d.status] || { tone: 'muted', label: d.status_text || 'Нет данных' };
 }
 
@@ -60,7 +60,11 @@ export default function AtlasResult({ d, compact = false }) {
         {ctrl.length > 0 && (
           <span className={`muted small ${europeOk ? '' : 'text-bad'}`}>Европа {europeOk ? '✓' : '✗'}</span>
         )}
-        {d.registry_blocked && <span className="atlas-pill atlas-pill--bad">реестр</span>}
+        {d.registry_blocked && (
+          <span className="atlas-pill atlas-pill--warn" title="Адрес есть в реестре, но решает доступность из России">
+            в реестре
+          </span>
+        )}
       </span>
     );
   }
@@ -94,9 +98,10 @@ export default function AtlasResult({ d, compact = false }) {
         </div>
         <div className="atlas-stat">
           <span className="atlas-stat__label">Реестр блокировок</span>
-          <span className={`atlas-stat__value ${d.registry_blocked ? 'text-bad' : 'text-ok'}`}>
+          <span className={`atlas-stat__value ${d.registry_blocked ? 'text-warn' : 'text-ok'}`}>
             {d.registry_blocked == null ? '—' : d.registry_blocked ? 'есть в реестре' : 'нет'}
           </span>
+          {d.registry_blocked && <span className="muted small">это пометка: решает доступность из России</span>}
           {d.whitelist != null && <span className="muted small">белый список: {d.whitelist ? 'да' : 'нет'}</span>}
         </div>
       </div>

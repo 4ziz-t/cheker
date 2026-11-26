@@ -7,6 +7,7 @@ import { IconChevronRight, IconGrip, IconRefresh, IconSearch, IconSwap, IconTras
 import { ConfirmModal } from '../components/Modal.jsx';
 import IpMeter from '../components/IpMeter.jsx';
 import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
+import OnlyBanner, { useOnlyFilter } from '../components/OnlyBanner.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
 import usePolling from '../hooks/usePolling.js';
@@ -24,7 +25,6 @@ const FILTERS = [
   { key: 'all', label: 'Все' },
   { key: 'offline', label: 'Offline' },
   { key: 'online', label: 'Online' },
-  { key: 'disabled', label: 'Отключённые' },
 ];
 
 
@@ -40,12 +40,14 @@ export default function Nodes() {
   const [dragging, setDragging] = useState(null); // uuid ноды, которую тянут
   const [checkingIps, setCheckingIps] = useState(() => new Set()); // id доменов, у которых идёт проверка IP
   const [savingOrder, setSavingOrder] = useState(false);
+  const { only, title: onlyTitle, clear: clearOnly } = useOnlyFilter();
 
   const counts = useMemo(() => {
-    const c = { all: 0, online: 0, offline: 0, disabled: 0 };
+    const c = { all: 0, online: 0, offline: 0 };
     (data || []).forEach((n) => {
       c.all += 1;
-      c[nodeState(n).key] += 1;
+      const key = nodeState(n).key;
+      if (key in c) c[key] += 1;
     });
     return c;
   }, [data]);
@@ -54,11 +56,12 @@ export default function Nodes() {
     const q = query.trim().toLowerCase();
     // порядок — как пришёл с сервера (его задаёт пользователь перетаскиванием)
     return (data || [])
+      .filter((n) => !only || only.has(n.uuid))
       .filter((n) => filter === 'all' || nodeState(n).key === filter)
       .filter((n) => !q || n.name.toLowerCase().includes(q) || n.address.toLowerCase().includes(q));
-  }, [data, filter, query]);
+  }, [data, filter, query, only]);
 
-  const canReorder = filter === 'all' && !query.trim() && list.length > 1;
+  const canReorder = filter === 'all' && !query.trim() && !only && list.length > 1;
 
   const saveOrder = async (ids) => {
     setSavingOrder(true);
@@ -271,6 +274,8 @@ export default function Nodes() {
         }
       />
 
+      {only && <OnlyBanner title={onlyTitle} count={list.length} onClear={clearOnly} />}
+
       <div className="toolbar">
         <div className="search">
           <IconSearch size={18} />
@@ -309,6 +314,11 @@ export default function Nodes() {
         />
       ) : (
         <div className={`node-list ${dragging ? 'is-sorting' : ''}`} ref={listRef}>
+          <p className="node-list__hint muted small">
+            {canReorder
+              ? 'Порядок — как в Remnawave. Можно поменять, потянув карточку за ⠿; «Синхронизировать с Remnawave» вернёт порядок панели.'
+              : 'Порядок — как в Remnawave. Менять его можно, когда выбран фильтр «Все», поиск пустой и показаны все ноды.'}
+          </p>
           <div className="node-row node-row--head" aria-hidden="true">
             <span />
             <span>Нода</span>

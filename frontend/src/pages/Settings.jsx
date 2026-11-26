@@ -228,7 +228,7 @@ export default function Settings({ onLogout }) {
                 max={240}
                 value={form.speed_confirm_minutes}
                 onChange={(v) => set('speed_confirm_minutes', v)}
-                hint="Защита от коротких провалов"
+                hint="0 — проверка IP запускается сразу, как только скорость упала"
               />
               <NumberField
                 label="Не следить за нодами с нормой меньше"
@@ -300,7 +300,16 @@ export default function Settings({ onLogout }) {
                 checked={form.auto_import_nodes}
                 onChange={(v) => set('auto_import_nodes', v)}
                 label="Добавлять адреса нод в «Домены»"
-                hint="Домен или IP новой ноды сам появится во вкладке «Домены»"
+                hint="Домен или IP новой ноды сам появится во вкладке «Домены» и сразу проверится. Отключённые в панели ноды не добавляются и не показываются"
+              />
+              <NumberField
+                label="Сверять IP доменов с DNS каждые"
+                suffix="мин"
+                min={1}
+                max={1440}
+                value={form.dns_refresh_minutes}
+                onChange={(v) => set('dns_refresh_minutes', v)}
+                hint="Если A-запись поменяли у хостера или в Cloudflare вручную, Cheker увидит новый IP, добавит его в список и сразу проверит"
               />
             </div>
           </Panel>

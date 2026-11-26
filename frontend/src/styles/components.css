@@ -1161,3 +1161,21 @@ textarea.input {
     display: none;
   }
 }
+
+/* ---------- «показаны только …» (переход с дашборда) ---------- */
+.only-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  padding: 8px 8px 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: var(--accent-soft);
+  font-size: 13.5px;
+}
+.only-banner__text b {
+  color: var(--accent);
+}

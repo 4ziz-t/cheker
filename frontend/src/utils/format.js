@@ -128,7 +128,7 @@ export function describeCheck(name, d) {
   if (name === 'atlas' && !d.error) {
     if (d.status_text) parts.push(d.status_text.toLowerCase());
     if (d.ru_total) parts.push(`из России ${d.ru_ok}/${d.ru_total}`);
-    if (d.registry_blocked) parts.push('в реестре блокировок');
+    if (d.registry_blocked) parts.push('есть пометка в реестре');
     return `${title}: ${parts.join(' · ') || (d.blocked ? 'в бане' : 'чисто')}`;
   }
   if (d.wire_ok === false) parts.push('по проводу недоступен');

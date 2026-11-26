@@ -35,7 +35,8 @@ DEFAULTS: dict[str, Any] = {
     "speed_window_minutes": 5,         # текущая скорость = среднее за N минут
     "speed_baseline_hours": 3,         # норма = средняя скорость за N часов
     "speed_min_baseline_mbps": 1.0,    # не следить за почти пустыми нодами
-    "speed_confirm_minutes": 10,       # падение должно держаться N минут
+    "speed_confirm_minutes": 0,
+    "dns_refresh_minutes": 5,          # как часто сверять IP доменов с DNS (A-запись могли поменять вручную)       # падение должно держаться N минут
     # --- проверка IP после падения скорости ---
     "investigation_checks": 3,         # сколько раз проверять IP
     "investigation_interval_minutes": 30,
@@ -148,6 +149,14 @@ async def migrate(db: AsyncSession) -> None:
     if not await get_state(db, "migrated_remna_order"):
         await set_state(db, "node_order", [])
         await set_state(db, "migrated_remna_order", True)
+        await db.commit()
+
+    # Проверка при падении скорости запускается сразу (было: падение должно держаться 10 минут).
+    if not await get_state(db, "migrated_speed_confirm_0"):
+        row = await db.get(Setting, "speed_confirm_minutes")
+        if row and json.loads(row.value) == 10:
+            row.value = json.dumps(0)
+        await set_state(db, "migrated_speed_confirm_0", True)
         await db.commit()
 
     # Порог падения скорости по умолчанию стал 99% (был 70%). Тем, у кого сохранено

@@ -52,16 +52,36 @@ class IPCheckCache:
         self.checker_names: list[str] = options["enabled_checkers"]
         self.default_port = int(options.get("tcp_check_port") or 443)
         self.delay = max(int(options.get("checker_delay_ms") or 0), 0) / 1000
-        self._cache: dict[tuple[str, int], AggregatedResult] = {}
+        self._cache: dict[tuple[str, int, tuple[str, ...]], AggregatedResult] = {}
         self._first = True
 
-    async def get(self, ip: str, port: int | None = None) -> AggregatedResult:
-        key = (ip, port or self.default_port)
+    async def get(self, ip: str, port: int | None = None, checkers: list[str] | None = None) -> AggregatedResult:
+        """checkers — свои источники для этого IP (выбраны на странице домена); None — общие."""
+        names = list(checkers) if checkers else list(self.checker_names)
+        port = port or self.default_port
+        key = (ip, port, tuple(sorted(names)))
         if key in self._cache:
             return self._cache[key]
         if not self._first and self.delay:
             await asyncio.sleep(self.delay)
         self._first = False
-        res = await check_ip(ip, self.checker_names, key[1], self.options)
+        res = await check_ip(ip, names, port, self.options)
         self._cache[key] = res
         return res
+
+
+def aggregate_stored(ip: str, details: dict, names: list[str]) -> AggregatedResult | None:
+    """Итог по уже сохранённым ответам выбранных источников — без новых запросов.
+
+    None — если по выбранным источникам ещё нет ответов.
+    """
+    results = [
+        CheckResult(n, details[n].get("blocked"), error=details[n].get("error"))
+        for n in names
+        if isinstance(details.get(n), dict)
+    ]
+    if not results:
+        return None
+    answered = [x for x in results if x.blocked is not None]
+    blocked = True if any(x.blocked for x in answered) else False if answered else None
+    return AggregatedResult(ip, blocked, results)

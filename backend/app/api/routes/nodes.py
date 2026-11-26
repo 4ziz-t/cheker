@@ -20,7 +20,8 @@ class NodeOrderIn(BaseModel):
 async def _list(db: AsyncSession) -> list[NodeOut]:
     domains = {d.name: d for d in (await db.execute(select(Domain))).scalars().all()}
     # порядок как в Remnawave (или свой, если ноды перетаскивали)
-    nodes = await node_service.ordered_nodes(db)
+    # ноды, отключённые в панели Remnawave, не показываем
+    nodes = [n for n in await node_service.ordered_nodes(db) if not n.is_disabled]
     ip_stats: dict[int, list[int]] = {}  # domain_id → [всего, доступны, в бане, не проверены]
     for domain_id, blocked in (await db.execute(select(DomainIP.domain_id, DomainIP.is_blocked))).all():
         st = ip_stats.setdefault(domain_id, [0, 0, 0, 0])

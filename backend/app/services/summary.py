@@ -16,10 +16,18 @@ async def build_summary(db: AsyncSession) -> tuple[str, str]:
     active_nodes = [n for n in nodes if not n.is_disabled]
     offline = [n for n in active_nodes if not n.is_connected]
 
-    domains = (await db.execute(select(Domain).where(Domain.enabled.is_(True)))).scalars().all()
+    from app.services.domain_service import (
+        hidden_domain_names,  # локально: без цикла импортов
+    )
+
+    hidden = await hidden_domain_names(db)  # домены отключённых в панели нод не считаем
+    domains = [d for d in (await db.execute(select(Domain).where(Domain.enabled.is_(True)))).scalars().all()
+               if d.name not in hidden]
     problems = [d for d in domains if d.status != DomainStatus.OK]
     blocked_ips = (await db.execute(
-        select(func.count(func.distinct(DomainIP.ip))).where(DomainIP.is_blocked.is_(True))
+        select(func.count(func.distinct(DomainIP.ip))).where(
+            DomainIP.is_blocked.is_(True), DomainIP.domain_id.in_([d.id for d in domains] or [-1])
+        )
     )).scalar_one()
 
     since = utcnow() - timedelta(hours=24)

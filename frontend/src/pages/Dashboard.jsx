@@ -18,6 +18,7 @@ import {
   IconShield,
   IconSwap,
 } from '../components/Icons.jsx';
+import { onlyLink } from '../components/OnlyBanner.jsx';
 import PageHeader, { EmptyState, ErrorBox } from '../components/PageHeader.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -75,11 +76,39 @@ function HealthBanner({ data, running }) {
   const activeInv = data.investigations.filter((i) => i.status === 'active').length;
 
   const items = [];
-  if (offline) items.push({ tone: 'bad', text: `${offline} ${plural(offline, 'нода', 'ноды', 'нод')} offline`, to: '/nodes' });
-  if (hard) items.push({ tone: 'bad', text: `${hard} ${plural(hard, 'домен', 'домена', 'доменов')} с IP в бане`, to: '/domains' });
-  if (soft) items.push({ tone: 'warn', text: `${soft} ${plural(soft, 'домен', 'домена', 'доменов')} с ошибкой`, to: '/domains' });
-  if (drops) items.push({ tone: 'warn', text: `падение скорости: ${drops}`, to: '/nodes' });
-  if (activeInv) items.push({ tone: 'warn', text: `идёт проверка IP: ${activeInv}` });
+  // каждая метка ведёт на список, где показаны только те ноды/домены, к которым она относится
+  const isHard = (d) => d.status === 'blocked' || d.status === 'no_ips';
+  const invDomains = [...new Set(data.investigations.filter((i) => i.status === 'active').map((i) => i.domain_id))];
+  if (offline)
+    items.push({
+      tone: 'bad',
+      text: `${offline} ${plural(offline, 'нода', 'ноды', 'нод')} offline`,
+      to: onlyLink('/nodes', data.nodes.offline.map((n) => n.uuid), 'ноды offline'),
+    });
+  if (hard)
+    items.push({
+      tone: 'bad',
+      text: `${hard} ${plural(hard, 'домен', 'домена', 'доменов')} с IP в бане`,
+      to: onlyLink('/domains', data.domains.problems.filter(isHard).map((d) => d.id), 'домены с IP в бане'),
+    });
+  if (soft)
+    items.push({
+      tone: 'warn',
+      text: `${soft} ${plural(soft, 'домен', 'домена', 'доменов')} с ошибкой`,
+      to: onlyLink('/domains', data.domains.problems.filter((d) => !isHard(d)).map((d) => d.id), 'домены с ошибкой'),
+    });
+  if (drops)
+    items.push({
+      tone: 'warn',
+      text: `падение скорости: ${drops}`,
+      to: onlyLink('/nodes', data.speeds.filter((n) => n.online && n.drop_since).map((n) => n.uuid), 'ноды с падением скорости'),
+    });
+  if (activeInv)
+    items.push({
+      tone: 'warn',
+      text: `идёт проверка IP: ${activeInv}`,
+      to: invDomains.length ? onlyLink('/domains', invDomains, 'домены, у которых идёт проверка IP') : undefined,
+    });
   if (running) items.push({ tone: 'accent', text: 'идёт проверка всех доменов' });
 
   const tone = offline || hard ? 'bad' : soft || drops || activeInv ? 'warn' : 'ok';
