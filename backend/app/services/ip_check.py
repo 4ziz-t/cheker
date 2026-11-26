@@ -7,10 +7,28 @@ from app.checkers import CheckResult, all_checkers
 from app.core.http import get_http
 
 
+def decide(results: list[CheckResult]) -> bool | None:
+    """Итог по нескольким источникам — большинством голосов ответивших.
+
+    Источники иногда ошибаются (например, один видит «бан», а сервер на деле работает),
+    поэтому один голос «бан» против двух «доступен» баном не считается.
+    Ничья — решает первый ответивший источник по порядку (Red Atlas, затем Latency Lab, bschekbot).
+    None — никто не ответил.
+    """
+    answered = [r for r in results if r.blocked is not None]
+    if not answered:
+        return None
+    banned = sum(1 for r in answered if r.blocked)
+    clean = len(answered) - banned
+    if banned != clean:
+        return banned > clean
+    return bool(answered[0].blocked)
+
+
 @dataclass
 class AggregatedResult:
     ip: str
-    # True — хотя бы один источник видит бан; False — все ответившие чисты; None — никто не ответил
+    # итог большинством ответивших источников (см. decide); None — никто не ответил
     blocked: bool | None
     results: list[CheckResult] = field(default_factory=list)
 
@@ -29,19 +47,14 @@ async def check_ip(
     ip: str, checker_names: list[str], port: int | None = None, options: dict[str, Any] | None = None
 ) -> AggregatedResult:
     registry = all_checkers()
-    instances = [registry[n](get_http(), options) for n in checker_names if n in registry]
+    order = list(registry)  # порядок источников: Red Atlas, Latency Lab, bschekbot
+    names = sorted((n for n in dict.fromkeys(checker_names) if n in registry), key=order.index)
+    instances = [registry[n](get_http(), options) for n in names]
     if not instances:
         return AggregatedResult(ip, None, [CheckResult("none", None, error="Нет включённых источников проверки")])
 
     results = await asyncio.gather(*(c.check(ip, port) for c in instances))
-    answered = [r for r in results if r.blocked is not None]
-    if any(r.blocked for r in answered):
-        blocked: bool | None = True
-    elif answered:
-        blocked = False
-    else:
-        blocked = None
-    return AggregatedResult(ip, blocked, list(results))
+    return AggregatedResult(ip, decide(list(results)), list(results))
 
 
 class IPCheckCache:
@@ -75,13 +88,12 @@ def aggregate_stored(ip: str, details: dict, names: list[str]) -> AggregatedResu
 
     None — если по выбранным источникам ещё нет ответов.
     """
+    order = list(all_checkers())
     results = [
         CheckResult(n, details[n].get("blocked"), error=details[n].get("error"))
-        for n in names
+        for n in sorted(names, key=lambda x: order.index(x) if x in order else len(order))
         if isinstance(details.get(n), dict)
     ]
     if not results:
         return None
-    answered = [x for x in results if x.blocked is not None]
-    blocked = True if any(x.blocked for x in answered) else False if answered else None
-    return AggregatedResult(ip, blocked, results)
+    return AggregatedResult(ip, decide(results), results)

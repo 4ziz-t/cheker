@@ -117,7 +117,10 @@ function IpDetails({ ip, checkers, defaults, saving, onChange }) {
           );
         })}
       </div>
-      {!custom && <p className="ip-checks__hint">Снимите галочку, чтобы для этого IP не учитывать источник</p>}
+      <p className="ip-checks__hint">
+        Итог — большинством отмеченных проверок (при равенстве решает верхняя).
+        {!custom && ' Снимите галочку, чтобы для этого IP не учитывать источник.'}
+      </p>
     </div>
   );
 }

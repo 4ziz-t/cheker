@@ -8,7 +8,7 @@ from app.core import integrations
 from app.core.config import get_settings
 from app.core.database import SessionLocal, init_db
 from app.core.http import close_http
-from app.services import settings_service
+from app.services import domain_service, settings_service
 from app.services.scheduler import scheduler
 from app.services.speed import tracker
 
@@ -23,6 +23,15 @@ async def lifespan(_: FastAPI):
     async with SessionLocal() as db:
         await integrations.load(db)
         await settings_service.migrate(db)
+        # новые правила итога (большинство источников, «в реестре» ≠ бан) — пересчитать один раз
+        if not await settings_service.get_state(db, "migrated_majority_vote"):
+            try:
+                fixed = await domain_service.recompute_stored(db)
+                log.info("Итог IP пересчитан по новым правилам: изменено %d", fixed)
+            except Exception:
+                log.exception("Не удалось пересчитать итог IP")
+            await settings_service.set_state(db, "migrated_majority_vote", True)
+            await db.commit()
         try:
             points = await tracker.load(db)
             log.info("История скорости нод: восстановлено точек — %d", points)

@@ -639,6 +639,55 @@ async def check_reserves() -> int:
     return checked
 
 
+async def recompute_stored(db: AsyncSession) -> int:
+    """Пересчитать итог IP по уже сохранённым ответам источников (без новых запросов).
+
+    Нужно после смены правил: пометка «в реестре» в Red Atlas больше не бан,
+    а итог по нескольким источникам считается большинством голосов.
+    Уведомлений не шлёт и IP не меняет. Возвращает, у скольких IP поменялся итог.
+    """
+    cfg = await settings_service.get_all(db)
+    threshold = float(cfg.get("atlas_fail_percent") or 50)
+    hidden = await hidden_domain_names(db)
+    changed = 0
+    for d in (await db.execute(select(Domain))).scalars().all():
+        current_changed = False
+        for entry in d.ips:
+            try:
+                details = json.loads(entry.details) if entry.details else {}
+            except ValueError:
+                continue
+            if not isinstance(details, dict) or not details:
+                continue
+            atlas = details.get("atlas")
+            if (
+                isinstance(atlas, dict) and atlas.get("blocked") is True and atlas.get("registry_blocked")
+                and atlas.get("status") != "blocked" and atlas.get("ru_total")
+            ):
+                fail = (atlas["ru_total"] - (atlas.get("ru_ok") or 0)) * 100 / atlas["ru_total"]
+                atlas["blocked"] = fail >= threshold
+                atlas["verdict"] = "не открывается из России" if atlas["blocked"] else "открывается из России"
+                entry.details = json.dumps(details, ensure_ascii=False)
+            res = aggregate_stored(entry.ip, details, entry.checker_list or list(cfg["enabled_checkers"]))
+            if res is None or res.blocked is None or res.blocked == entry.is_blocked:
+                continue
+            entry.is_blocked = res.blocked
+            entry.blocked_since = (entry.blocked_since or utcnow()) if res.blocked else None
+            changed += 1
+            if entry.ip == d.current_ip:
+                current_changed = True
+        if current_changed and d.name not in hidden:
+            cur = next((e for e in d.ips if e.ip == d.current_ip), None)
+            if cur is not None and cur.is_blocked is False and d.status in (
+                DomainStatus.BLOCKED, DomainStatus.NO_IPS, DomainStatus.UNKNOWN
+            ):
+                d.status, d.status_message, d.no_ips_alerted = DomainStatus.OK, "", False
+            elif cur is not None and cur.is_blocked is True and d.status == DomainStatus.OK:
+                d.status, d.status_message = DomainStatus.BLOCKED, "Текущий IP в бане"
+    await db.commit()
+    return changed
+
+
 async def check_many(domain_ids: list[int], all_ips: bool = False) -> None:
     """Проверить несколько доменов по очереди, не дожидаясь общего цикла (новые ноды и т.п.)."""
     for i in domain_ids:

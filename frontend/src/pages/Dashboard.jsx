@@ -385,13 +385,28 @@ function IpTool() {
   const first = done[0]?.r;
   const banned = done.filter((x) => x.r.blocked === true);
   const clean = done.filter((x) => x.r.blocked === false);
+  // итог — большинством ответивших (как в автопроверках); ничья — по первому источнику в списке
+  const answered = done.filter((x) => x.r.blocked !== null && x.r.blocked !== undefined);
+  const isBanned =
+    banned.length !== clean.length ? banned.length > clean.length : answered[0]?.r.blocked === true;
+  const names = (list) => list.map((x) => x.title).join(', ');
   const overall = !done.length
     ? null
-    : banned.length
-      ? { tone: 'bad', text: `В бане по данным: ${banned.map((x) => x.title).join(', ')}` }
-      : clean.length
-        ? { tone: 'ok', text: `Доступен${clean.length > 1 ? ` · подтвердили ${clean.length} источника` : ''}` }
-        : { tone: 'warn', text: 'Не удалось проверить' };
+    : !answered.length
+      ? { tone: 'warn', text: 'Не удалось проверить' }
+      : isBanned
+        ? {
+            tone: 'bad',
+            text: `В бане${answered.length > 1 ? ` (${banned.length} из ${answered.length})` : ''}${
+              clean.length ? ` · доступен по: ${names(clean)}` : ''
+            }`,
+          }
+        : {
+            tone: banned.length ? 'warn' : 'ok',
+            text: `Доступен${answered.length > 1 ? ` (${clean.length} из ${answered.length})` : ''}${
+              banned.length ? ` · бан видит только: ${names(banned)}` : ''
+            }`,
+          };
 
   const shown = SOURCES.filter((src) => {
     const c = checks[src.key];
