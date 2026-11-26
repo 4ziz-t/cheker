@@ -23,7 +23,7 @@ EVENT_TYPES: dict[str, str] = {
     "node_online": "Нода снова online",
     "integration_error": "Ошибки API (Cloudflare, Remnawave, Red Atlas, Latency Lab, bschekbot)",
     "security": "Блокировка входа (подбор пароля)",
-    "daily_summary": "Ежедневная сводка",
+    "daily_summary": "Ежедневный отчёт по нодам",
 }
 
 DEFAULTS: dict[str, Any] = {
@@ -35,8 +35,11 @@ DEFAULTS: dict[str, Any] = {
     "speed_window_minutes": 5,         # текущая скорость = среднее за N минут
     "speed_baseline_hours": 3,         # норма = средняя скорость за N часов
     "speed_min_baseline_mbps": 1.0,    # не следить за почти пустыми нодами
-    "speed_confirm_minutes": 0,
-    "dns_refresh_minutes": 5,          # как часто сверять IP доменов с DNS (A-запись могли поменять вручную)       # падение должно держаться N минут
+    "speed_confirm_minutes": 0,        # падение должно держаться N минут (0 — проверка сразу)
+    "dns_refresh_minutes": 5,          # как часто сверять IP доменов с DNS (A-запись могли поменять вручную)
+    "reserve_check_minutes": 120,      # как часто проверять резервные IP (их могли разбанить); 0 — не проверять
+    "node_offline_alert_minutes": 10,  # «нода недоступна» — если не подключена дольше N минут
+    "node_offline_repeat_minutes": 10,  # и дальше повторять каждые N минут, пока не вернётся (0 — один раз)
     # --- проверка IP после падения скорости ---
     "investigation_checks": 3,         # сколько раз проверять IP
     "investigation_interval_minutes": 30,
@@ -56,7 +59,7 @@ DEFAULTS: dict[str, Any] = {
     "checker_delay_ms": 1000,
     # --- уведомления и прочее ---
     "daily_summary_enabled": True,
-    "daily_summary_time": "10:00",
+    "daily_summary_time": "07:00",
     "notify": {k: True for k in EVENT_TYPES},
     "events_retention_days": 90,
 }
@@ -149,6 +152,14 @@ async def migrate(db: AsyncSession) -> None:
     if not await get_state(db, "migrated_remna_order"):
         await set_state(db, "node_order", [])
         await set_state(db, "migrated_remna_order", True)
+        await db.commit()
+
+    # Ежедневный отчёт теперь в 07:00 (было 10:00): меняем, только если стояло старое значение.
+    if not await get_state(db, "migrated_summary_7"):
+        row = await db.get(Setting, "daily_summary_time")
+        if row and json.loads(row.value) == "10:00":
+            row.value = json.dumps("07:00")
+        await set_state(db, "migrated_summary_7", True)
         await db.commit()
 
     # Проверка при падении скорости запускается сразу (было: падение должно держаться 10 минут).

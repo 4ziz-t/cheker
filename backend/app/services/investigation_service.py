@@ -27,7 +27,7 @@ from app.core.timeutils import utcnow
 from app.models import Domain, Investigation, Node
 from app.models.domain import DomainKind, DomainStatus
 from app.models.investigation import InvestigationStatus as S
-from app.services import domain_service, settings_service
+from app.services import domain_service, notices, settings_service
 from app.services.events import errors, record
 from app.services.ip_check import IPCheckCache
 from app.services.speed import mbps
@@ -238,7 +238,8 @@ async def _step(db: AsyncSession, inv: Investigation) -> None:
                     f"Проверьте сервер ноды и канал у хостера.")
             await _finish(db, inv, S.NOT_BANNED, text)
             await record(db, "node_suspect", "IP не в бане, но скорость ноды низкая", text,
-                         level="warning", node=inv.node_name or None, domain=domain.name, ip=ip, emoji="🛠")
+                         level="warning", node=inv.node_name or None, domain=domain.name, ip=ip,
+                         tg_text=await notices.speed_problem(db, domain, [ip]))
             return
 
         inv.blocked_count += 1

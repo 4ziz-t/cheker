@@ -13,6 +13,7 @@ from app.models import Event, UserSession
 from app.services import investigation_service, settings_service
 from app.services.domain_service import (
     check_many,
+    check_reserves,
     refresh_dns,
     run_cycle,
     unlinked_domain_ids,
@@ -31,6 +32,7 @@ class Scheduler:
         self.next_unlinked_check: float | None = None
         self._wake_nodes = asyncio.Event()
         self._wake_dns = asyncio.Event()
+        self._wake_reserve = asyncio.Event()
         self.next_node_poll: float | None = None
 
     def start(self) -> None:
@@ -41,6 +43,7 @@ class Scheduler:
         ]
         self._tasks.append(asyncio.create_task(self._nodes_loop(), name="nodes"))
         self._tasks.append(asyncio.create_task(self._dns_loop(), name="dns"))
+        self._tasks.append(asyncio.create_task(self._reserve_loop(), name="reserve"))
 
     async def stop(self) -> None:
         for t in self._tasks:
@@ -52,6 +55,7 @@ class Scheduler:
         self._wake_unlinked.set()
         self._wake_nodes.set()
         self._wake_dns.set()
+        # резервные IP по сохранению настроек не трогаем — это дорого (лимиты источников)
 
     async def _sleep_or_wake(self, event: asyncio.Event, seconds: float) -> bool:
         """True — разбудили досрочно."""
@@ -87,6 +91,22 @@ class Scheduler:
             except Exception:  # noqa: BLE001
                 log.exception("Ошибка сверки IP доменов с DNS")
             await self._sleep_or_wake(self._wake_dns, minutes * 60)
+
+    async def _reserve_loop(self) -> None:
+        """Резервные IP: проверяем раз в N минут — забаненные могли разбанить."""
+        await asyncio.sleep(120)
+        while True:
+            minutes = 120
+            try:
+                async with SessionLocal() as db:
+                    minutes = int(await settings_service.get(db, "reserve_check_minutes"))
+                if minutes > 0:
+                    count = await check_reserves()
+                    if count:
+                        log.info("Проверено резервных IP: %d", count)
+            except Exception:  # noqa: BLE001
+                log.exception("Ошибка проверки резервных IP")
+            await self._sleep_or_wake(self._wake_reserve, (minutes or 30) * 60)
 
     def wake_investigations(self) -> None:
         self._wake_investigations.set()

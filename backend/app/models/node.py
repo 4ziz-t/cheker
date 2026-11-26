@@ -28,6 +28,7 @@ class Node(Base):
     offline_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # уже отправлено «нода offline» и ещё не было «снова online» — повторно не шлём
     alert_offline: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    offline_alerted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # когда слали «недоступна»
     # адрес панели Remnawave, из которой пришла нода (после смены панели старые ноды убираются)
     panel_url: Mapped[str] = mapped_column(String(255), default="", server_default="")
     # место ноды в списке панели Remnawave — в таком порядке ноды и домены показываются в Cheker

@@ -288,19 +288,46 @@ export default function Settings({ onLogout }) {
                 hint="Статус и скорость нод обновляются с этим интервалом"
               />
               <NumberField
-                label="«Offline» / «снова online» — если держится"
+                label="«Нода недоступна» — если не подключена дольше"
+                suffix="мин"
+                min={1}
+                max={1440}
+                value={form.node_offline_alert_minutes}
+                onChange={(v) => set('node_offline_alert_minutes', v)}
+                hint="Короткие отвалы от панели уведомлений не дают"
+              />
+              <NumberField
+                label="Повторять, пока нода недоступна, каждые"
+                suffix="мин"
+                min={0}
+                max={1440}
+                value={form.node_offline_repeat_minutes}
+                onChange={(v) => set('node_offline_repeat_minutes', v)}
+                hint="0 — только одно уведомление. Когда нода вернётся, придёт «снова на связи»"
+              />
+              <NumberField
+                label="«Снова на связи» — если держится"
                 suffix="опросов подряд"
                 min={1}
                 max={60}
                 value={form.node_offline_confirm_polls}
                 onChange={(v) => set('node_offline_confirm_polls', v)}
-                hint="Уведомление «нода offline» приходит один раз, следующее — когда нода снова online. Защита от коротких сбоев"
+                hint="Защита от «мигания» статуса"
               />
               <Toggle
                 checked={form.auto_import_nodes}
                 onChange={(v) => set('auto_import_nodes', v)}
                 label="Добавлять адреса нод в «Домены»"
                 hint="Домен или IP новой ноды сам появится во вкладке «Домены» и сразу проверится. Отключённые в панели ноды не добавляются и не показываются"
+              />
+              <NumberField
+                label="Проверять резервные IP каждые"
+                suffix="мин"
+                min={0}
+                max={10080}
+                value={form.reserve_check_minutes}
+                onChange={(v) => set('reserve_check_minutes', v)}
+                hint="Забаненные резервные IP могут разбанить. Если у домена текущий IP в бане, а резервный ожил — IP сменится сразу (при включённой автосмене). 0 — не проверять"
               />
               <NumberField
                 label="Сверять IP доменов с DNS каждые"
@@ -395,12 +422,13 @@ export default function Settings({ onLogout }) {
             </div>
           </Panel>
 
-          <Panel title="Ежедневная сводка">
+          <Panel title="Ежедневный отчёт по нодам">
             <div className="form">
               <Toggle
                 checked={form.daily_summary_enabled}
                 onChange={(v) => set('daily_summary_enabled', v)}
-                label="Отправлять сводку"
+                label="Отправлять отчёт"
+                hint="Сколько нод в строю, сколько замен IP за сутки, на каких нодах остался один живой IP (и какие из них новые)"
               />
               <label className="field">
                 <span className="field__label">Время отправки ({status?.timezone})</span>
@@ -414,7 +442,7 @@ export default function Settings({ onLogout }) {
               </label>
               <button type="button" className="btn btn--ghost" disabled={!!testing} onClick={() => test('summary')}>
                 {testing === 'summary' ? <Spinner size={16} /> : <IconSend size={16} />}
-                <span>Отправить сводку сейчас</span>
+                <span>Отправить отчёт сейчас</span>
               </button>
             </div>
           </Panel>

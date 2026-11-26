@@ -72,7 +72,9 @@ async def sync_dns(db: AsyncSession, domain: Domain) -> None:
         )
 
 
-async def switch_ip(db: AsyncSession, domain: Domain, new_ip: str, *, manual: bool, reason: str = "") -> None:
+async def switch_ip(
+    db: AsyncSession, domain: Domain, new_ip: str, *, manual: bool, reason: str = "", tg_text: str | None = None
+) -> None:
     """Меняет A-запись в Cloudflare. Бросает CloudflareError при ошибке."""
     cf = CloudflareClient()
     if not domain.cf_zone_id:
@@ -114,7 +116,7 @@ async def switch_ip(db: AsyncSession, domain: Domain, new_ip: str, *, manual: bo
     if reason:
         msg += f"\nПричина: {reason}"
     await record(db, kind, title, msg, level="success" if not manual else "info",
-                 domain=domain.name, ip=new_ip, emoji="🔁")
+                 domain=domain.name, ip=new_ip, emoji="🔁", tg_text=tg_text)
 
 
 async def _find_candidate(
@@ -258,6 +260,7 @@ async def _apply_result(db: AsyncSession, domain: Domain, entry: DomainIP, res: 
             db, "ip_blocked", "IP в бане",
             f"{entry.ip} — {domain.name} ({role})",
             level="error" if is_current else "warning", domain=domain.name, ip=entry.ip, emoji="⛔",
+            notify=not is_current,  # о текущем IP придёт отдельное уведомление: «Замена» / «Бан без замены»
         )
     elif not res.blocked and prev is True:
         entry.blocked_since = None
@@ -343,31 +346,54 @@ async def resolve_dns(name: str) -> str | None:
         return None
 
 
+async def _ban_notice(db: AsyncSession, domain: Domain, title: str, text: str, tg_text: str) -> None:
+    """Уведомление о бане текущего IP — один раз, пока домен снова не станет «в порядке»."""
+    if domain.no_ips_alerted:
+        return
+    domain.no_ips_alerted = True
+    await db.commit()
+    await record(db, "no_available_ips", title, text, level="error", domain=domain.name,
+                 ip=domain.current_ip, tg_text=tg_text)
+
+
+async def _check_rest(db: AsyncSession, domain: Domain, cache: IPCheckCache) -> None:
+    """Проверить все IP домена (уже проверенные в этом цикле берутся из кэша) — для точного «живых IP»."""
+    for entry in domain.ips:
+        res = await cache.get(entry.ip, domain.check_port, entry.checker_list)
+        await _report_checker_errors(db, res)
+        await _apply_result(db, domain, entry, res)
+    await db.commit()
+
+
 async def handle_current_banned(db: AsyncSession, domain: Domain, cache: IPCheckCache, auto: bool) -> str | None:
     """Текущий IP в бане: ищем следующий доступный и переключаем A-запись.
 
-    Возвращает новый IP или None.
+    Возвращает новый IP или None. Уведомления — в формате notices: «Замена», «Бан без замены»,
+    «Нода забанена» (сменить нельзя).
     """
+    from app.services import notices  # локально: notices импортирует модели
+
+    async def no_switch(status: str, message: str, reason: str) -> None:
+        await _set_status(db, domain, status, message)
+        await _ban_notice(db, domain, "Нода забанена", f"{domain.name}: {reason}",
+                          await notices.banned_no_switch(db, domain, reason))
+
     if domain.kind == DomainKind.IP:
-        await _set_status(db, domain, DomainStatus.BLOCKED, "IP в бане. Это IP-адрес, сменить его автоматически нельзя")
+        await no_switch(DomainStatus.BLOCKED, "IP в бане. Это IP-адрес, сменить его автоматически нельзя",
+                        "это IP-адрес, сменить его автоматически нельзя")
         return None
     if not auto:
-        await _set_status(db, domain, DomainStatus.BLOCKED, "Текущий IP в бане, автосмена выключена")
+        await no_switch(DomainStatus.BLOCKED, "Текущий IP в бане, автосмена выключена", "автозамена не включена")
         return None
     # нет резервных IP — менять не на что, в Cloudflare не идём
     if not any(e.ip != domain.current_ip for e in domain.ips):
-        if not domain.no_ips_alerted:
-            domain.no_ips_alerted = True
-            await record(
-                db, "no_available_ips", "Нет резервных IP",
-                f"{domain.name}: текущий {domain.current_ip} в бане, а других IP в списке домена нет. "
-                f"Добавьте резервные IP — тогда Cheker сменит A-запись сам.",
-                level="error", domain=domain.name, emoji="🆘",
-            )
         await _set_status(db, domain, DomainStatus.NO_IPS, "IP в бане, резервных IP в списке нет")
+        await _ban_notice(db, domain, "Бан без замены", f"{domain.name}: текущий IP в бане, резервных IP нет",
+                          await notices.banned_no_ips(db, domain))
         return None
     if not integrations.cloudflare_configured():
-        await _set_status(db, domain, DomainStatus.BLOCKED, "IP в бане, но Cloudflare не настроен — сменить нечем")
+        await no_switch(DomainStatus.BLOCKED, "IP в бане, но Cloudflare не настроен — сменить нечем",
+                        "добавьте API Cloudflare (DNS-хостинга) в «Настройки → Интеграции»")
         return None
 
     # только теперь идём в Cloudflare: сверяем A-запись перед сменой
@@ -378,7 +404,8 @@ async def handle_current_banned(db: AsyncSession, domain: Domain, cache: IPCheck
     except (CloudflareError, DnsConflictError) as e:
         domain.cf_zone_id = None
         await errors.report(db, "cloudflare", "Cloudflare", f"{domain.name}: {e}")
-        await _set_status(db, domain, DomainStatus.BLOCKED, f"IP {banned_ip} в бане, но сменить не удалось: {e}")
+        await no_switch(DomainStatus.BLOCKED, f"IP {banned_ip} в бане, но сменить не удалось: {e}",
+                        f"не удалось сменить A-запись: {e}")
         return None
     if domain.current_ip != banned_ip:
         # A-запись уже указывает на другой IP (сменили вручную) — проверим её в следующий раз
@@ -387,18 +414,15 @@ async def handle_current_banned(db: AsyncSession, domain: Domain, cache: IPCheck
         return None
 
     candidate = await _find_candidate(db, domain, domain.current_ip, cache)
+    # все IP прогоняем через проверку, чтобы в уведомлении было точное «живых IP»
+    await _check_rest(db, domain, cache)
     if candidate:
-        await _safe_switch(db, domain, candidate, f"{domain.current_ip} в бане")
+        text = await notices.switched(db, domain, banned_ip, candidate)
+        await _safe_switch(db, domain, candidate, f"{banned_ip} в бане", tg_text=text)
         return candidate if domain.current_ip == candidate else None
-    if not domain.no_ips_alerted:
-        domain.no_ips_alerted = True
-        await record(
-            db, "no_available_ips", "Нет доступных IP",
-            f"{domain.name}: текущий {domain.current_ip} в бане, резервные IP тоже в бане "
-            f"или их не удалось проверить. Добавьте новые IP.",
-            level="error", domain=domain.name, emoji="🆘",
-        )
     await _set_status(db, domain, DomainStatus.NO_IPS, "Все IP из списка в бане")
+    await _ban_notice(db, domain, "Бан без замены", f"{domain.name}: все IP из списка в бане",
+                      await notices.banned_no_ips(db, domain))
     return None
 
 
@@ -466,8 +490,9 @@ async def _status_from_current(
     """Статус домена по результату проверки текущего IP (так же, как при полной проверке)."""
     if domain.kind == DomainKind.IP:
         if res.blocked is True:
-            await _set_status(db, domain, DomainStatus.BLOCKED, "IP в бане. Это IP-адрес, сменить его автоматически нельзя")
+            await handle_current_banned(db, domain, cache, False)
         elif res.blocked is False:
+            domain.no_ips_alerted = False
             await _set_status(db, domain, DomainStatus.OK, "")
         return
     if res.blocked is True:
@@ -491,16 +516,17 @@ async def _process_ip_entry(db: AsyncSession, domain: Domain, cache: IPCheckCach
     await _report_checker_errors(db, res)
     await _apply_result(db, domain, entry, res)
     if res.blocked is True:
-        await _set_status(db, domain, DomainStatus.BLOCKED, "IP в бане. Это IP-адрес, сменить его автоматически нельзя")
+        await handle_current_banned(db, domain, cache, False)  # статус + уведомление «Нода забанена»
     elif res.blocked is False:
+        domain.no_ips_alerted = False
         await _set_status(db, domain, DomainStatus.OK, "")
     else:
         await _set_status(db, domain, DomainStatus.ERROR, f"Не удалось проверить IP: {'; '.join(res.errors) or '—'}")
 
 
-async def _safe_switch(db: AsyncSession, domain: Domain, ip: str, reason: str) -> None:
+async def _safe_switch(db: AsyncSession, domain: Domain, ip: str, reason: str, tg_text: str | None = None) -> None:
     try:
-        await switch_ip(db, domain, ip, manual=False, reason=reason)
+        await switch_ip(db, domain, ip, manual=False, reason=reason, tg_text=tg_text)
         await errors.resolve(db, "cloudflare", "Cloudflare")
     except (CloudflareError, DnsConflictError) as e:
         await errors.report(db, "cloudflare", "Cloudflare", f"Не удалось сменить IP {domain.name}: {e}")
@@ -569,6 +595,48 @@ async def unlinked_domain_ids(db: AsyncSession) -> list[int]:
     }
     rows = (await db.execute(select(Domain.id, Domain.name).where(Domain.enabled.is_(True)))).all()
     return [i for i, name in rows if name not in addresses]
+
+
+async def check_reserves() -> int:
+    """Периодическая проверка резервных IP всех доменов: забаненные могли разбанить.
+
+    Если у домена текущий IP в бане (или живых не было), а резервный ожил — сразу
+    запускаем обычную проверку домена: она сменит IP (если включена автосмена).
+    Возвращает, сколько IP проверено.
+    """
+    checked = 0
+    revive: list[int] = []
+    async with SessionLocal() as db:
+        cfg = await settings_service.get_all(db)
+        cache = IPCheckCache(cfg)
+        hidden = await hidden_domain_names(db)
+        domains = (await db.execute(
+            select(Domain).where(Domain.enabled.is_(True), Domain.kind == DomainKind.DOMAIN).order_by(Domain.name)
+        )).scalars().all()
+        for d in domains:
+            if d.name in hidden or len(d.ips) < 2:
+                continue
+            try:
+                async with domain_lock(d.id):
+                    await db.refresh(d)
+                    for entry in d.ips:
+                        if entry.ip == d.current_ip:
+                            continue
+                        res = await cache.get(entry.ip, d.check_port, entry.checker_list)
+                        await _report_checker_errors(db, res)
+                        await _apply_result(db, d, entry, res)
+                        checked += 1
+                    await db.commit()
+                    if d.status in (DomainStatus.BLOCKED, DomainStatus.NO_IPS) and any(
+                        e.is_blocked is False for e in d.ips if e.ip != d.current_ip
+                    ):
+                        revive.append(d.id)
+            except Exception:  # noqa: BLE001
+                log.exception("Ошибка проверки резервных IP %s", d.name)
+                await db.rollback()
+    for domain_id in revive:
+        await check_now(domain_id)
+    return checked
 
 
 async def check_many(domain_ids: list[int], all_ips: bool = False) -> None:

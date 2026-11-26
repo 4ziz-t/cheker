@@ -15,7 +15,12 @@ from app.integrations.remnawave import RemnaNode, RemnawaveClient, RemnawaveErro
 from app.models import Domain, DomainIP, Node
 from app.models.domain import DomainSource
 from app.schemas import DOMAIN_RE, is_ipv4
-from app.services import domain_service, investigation_service, settings_service
+from app.services import (
+    domain_service,
+    investigation_service,
+    notices,
+    settings_service,
+)
 from app.services.events import errors, record
 from app.services.speed import tracker
 
@@ -298,6 +303,9 @@ async def poll_nodes(sync: bool = False) -> int | None:
         panel = RemnawaveClient().base
         await _drop_foreign(db, existing, {rn.uuid for rn in remote_all}, panel)
         confirm = max(int(await settings_service.get(db, "node_offline_confirm_polls")), 1)
+        alert_after = timedelta(minutes=max(int(await settings_service.get(db, "node_offline_alert_minutes")), 1))
+        repeat_min = int(await settings_service.get(db, "node_offline_repeat_minutes"))
+        repeat_every = timedelta(minutes=repeat_min) if repeat_min > 0 else None
         notifications: list[tuple[str, Node]] = []
 
         new_addresses: set[str] = set()
@@ -337,15 +345,22 @@ async def poll_nodes(sync: bool = False) -> int | None:
             if state == "down":
                 if n.offline_since is None:
                     n.offline_since = now
-                if not n.alert_offline and count >= confirm:
+                # «нода недоступна» — когда не подключена дольше N минут, и дальше каждые M минут
+                if now - n.offline_since >= alert_after and (
+                    n.offline_alerted_at is None
+                    or (repeat_every is not None and now - n.offline_alerted_at >= repeat_every)
+                ):
                     n.alert_offline = True
+                    n.offline_alerted_at = now
                     notifications.append(("offline", n))
             else:
                 if n.alert_offline and count >= confirm:
                     n.alert_offline = False
+                    n.offline_alerted_at = None
                     notifications.append(("online", n))
                 elif not n.alert_offline:
                     n.offline_since = None  # короткий сбой без уведомления
+                    n.offline_alerted_at = None
 
         # ноду удаляем из списка, только если её нет в ответе Remnawave несколько опросов подряд:
         # панель иногда отдаёт неполный/пустой список, и тогда все ноды «пропадали»
@@ -390,16 +405,15 @@ async def poll_nodes(sync: bool = False) -> int | None:
                 spawn(domain_service.check_many(ids, all_ips=True))
 
         for kind, n in notifications:
+            down = (now - n.offline_since).total_seconds() if n.offline_since else None
             if kind == "offline":
-                reason = f"\nСтатус: {n.last_status_message}" if n.last_status_message else ""
-                await record(db, "node_offline", "Нода offline", f"{_node_label(n)}{reason}",
-                             level="error", node=n.name, emoji="🔴")
+                await record(db, "node_offline", "Нода недоступна",
+                             f"{_node_label(n)}\nНе подключена {fmt_duration(down or 0)}",
+                             level="error", node=n.name, tg_text=notices.node_down(n, down or 0))
             else:
-                downtime = ""
-                if n.offline_since:
-                    downtime = f"\nНе работала: {fmt_duration((now - n.offline_since).total_seconds())}"
                 n.offline_since = None
                 await db.commit()
-                await record(db, "node_online", "Нода снова online", f"{_node_label(n)}{downtime}",
-                             level="success", node=n.name, emoji="🟢")
+                downtime = f"\nБыла недоступна {fmt_duration(down)}" if down else ""
+                await record(db, "node_online", "Нода снова на связи", f"{_node_label(n)}{downtime}",
+                             level="success", node=n.name, tg_text=notices.node_up(n, down))
         return len(restored)
