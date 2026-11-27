@@ -1,12 +1,15 @@
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import integrations
 from app.core.database import get_db
-from app.integrations.cloudflare import CloudflareError
+from app.integrations.cloudflare import CloudflareClient, CloudflareError
 from app.models import Domain, DomainIP, Node
-from app.models.domain import DomainStatus
+from app.models.domain import DomainKind, DomainStatus
 from app.schemas import (
     DomainCreate,
     DomainIPsUpdate,
@@ -96,6 +99,33 @@ async def create_domain(data: DomainCreate, db: AsyncSession = Depends(get_db)):
 @router.get("/{domain_id}", response_model=DomainOut)
 async def get_domain(domain_id: int, db: AsyncSession = Depends(get_db)):
     return _out(await _get(db, domain_id), await _nodes_by_address(db))
+
+
+_cf_cache: dict[int, tuple[float, dict]] = {}
+CF_CACHE_SEC = 600
+
+
+@router.get("/{domain_id}/cloudflare")
+async def domain_in_cloudflare(domain_id: int, refresh: bool = False, db: AsyncSession = Depends(get_db)):
+    """Есть ли домен в Cloudflare (кнопка «Назначить» показывается только тогда). Кэш 10 минут."""
+    d = await _get(db, domain_id)
+    if d.kind == DomainKind.IP:
+        return {"available": False, "reason": "Это IP-адрес — A-записи у него нет"}
+    if not integrations.cloudflare_configured():
+        return {"available": False, "reason": "Cloudflare не настроен («Настройки → Интеграции»)"}
+    hit = _cf_cache.get(d.id)
+    if hit and not refresh and time.monotonic() - hit[0] < CF_CACHE_SEC:
+        return hit[1]
+    try:
+        zone = await CloudflareClient().find_zone_id(d.name)
+        if d.cf_zone_id != zone:
+            d.cf_zone_id = zone
+            await db.commit()
+        result = {"available": True, "reason": ""}
+    except CloudflareError as e:
+        result = {"available": False, "reason": f"Домена нет в Cloudflare: {e}"}
+    _cf_cache[d.id] = (time.monotonic(), result)
+    return result
 
 
 @router.patch("/{domain_id}", response_model=DomainOut)

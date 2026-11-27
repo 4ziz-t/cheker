@@ -963,3 +963,26 @@ a.speed-list__row:hover {
     width: 100%;
   }
 }
+
+/* идёт проверка всех доменов — прогресс и отмена */
+.check-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: var(--accent-soft);
+}
+.check-progress__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.check-progress__text b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}

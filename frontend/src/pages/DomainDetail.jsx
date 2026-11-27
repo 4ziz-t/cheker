@@ -200,6 +200,20 @@ export default function DomainDetail() {
   const [checkingIp, setCheckingIp] = useState('');
   const [savingChecks, setSavingChecks] = useState('');
   const [checkerMeta, setCheckerMeta] = useState({ list: [], defaults: [] });
+  // есть ли домен в Cloudflare: «Назначить» показываем только тогда (null — ещё узнаём)
+  const [cf, setCf] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    setCf(null);
+    domainsApi
+      .cloudflare(id)
+      .then((r) => alive && setCf(r))
+      .catch((e) => alive && setCf({ available: false, reason: e.message }));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
 
   useEffect(() => {
     settingsApi
@@ -524,10 +538,31 @@ export default function DomainDetail() {
             )}
           </div>
 
+          {!isIpEntry && cf && !cf.available && (
+            <div className="alert alert--warn cf-missing">
+              <span>
+                Кнопки «Назначить» нет — {cf.reason}. Сменить IP можно в панели DNS вашего хостинга: Cheker увидит
+                новый IP при следующей сверке с DNS.
+              </span>
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost"
+                onClick={() =>
+                  domainsApi
+                    .cloudflare(id, true)
+                    .then(setCf)
+                    .catch((e) => setCf({ available: false, reason: e.message }))
+                }
+              >
+                Проверить снова
+              </button>
+            </div>
+          )}
+
           {!isIpEntry && domain.ips.length > 1 && (
             <p className="field__hint">
-              Резервные IP проверяются, только когда нужно переключиться (или кнопкой ↻). Каждая проверка — 1 запрос к
-              источникам (у Red Atlas лимит 6 проверок за 10 минут).
+              Все IP проверяются при падении скорости ноды, каждое утро в отчёте и кнопкой ↻. У Red Atlas лимит —
+              6 проверок за 10 минут, остальные ждут в очереди.
             </p>
           )}
           {domain.ips.length === 0 ? (
@@ -559,7 +594,7 @@ export default function DomainDetail() {
                       />
                     </div>
                     {!isIpEntry && <div className="ip-row__actions">
-                      {!isCurrent && (
+                      {!isCurrent && cf?.available && (
                         <button
                           type="button"
                           className="btn btn--sm btn--ghost"

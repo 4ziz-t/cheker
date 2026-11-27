@@ -2,7 +2,7 @@
 import asyncio
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
 from sqlalchemy import delete, select
@@ -22,7 +22,7 @@ from app.services import (
     settings_service,
 )
 from app.services.events import errors, record
-from app.services.speed import tracker
+from app.services.speed import mbps, tracker
 
 log = logging.getLogger(__name__)
 _poll_lock = asyncio.Lock()
@@ -77,7 +77,9 @@ REALTIME_RECHECK_SEC = 3600
 # uuid → (состояние up/down, сколько опросов подряд)
 _streak: dict[str, tuple[str, int]] = {}
 # ноды, по текущему падению скорости которых уже приняты меры (сбрасывается, когда скорость вернулась)
-_drop_handled: set[str] = set()
+# uuid → когда по падению скорости/трафика последний раз запускали проверку IP
+_drop_handled: dict[str, datetime] = {}
+RETRIGGER_AFTER = timedelta(minutes=30)  # падение не прошло — через 30 мин проверить снова
 # uuid → сколько опросов подряд ноды нет в ответе Remnawave
 _missing: dict[str, int] = {}
 GONE_CONFIRM_POLLS = 3
@@ -108,7 +110,9 @@ async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
     drop_share = float(cfg["speed_drop_percent"]) / 100
     min_base = float(cfg["speed_min_baseline_mbps"]) * 1_000_000 / 8
     confirm = timedelta(minutes=int(cfg["speed_confirm_minutes"]))
-    triggered: list[tuple[Node, float, float]] = []
+    no_traffic_sec = int(cfg.get("no_traffic_minutes") or 0) * 60
+    no_traffic_bytes = float(cfg.get("no_traffic_mb") or 1) * 1_000_000
+    triggered: list[tuple[Node, float, float, str | None]] = []
 
     for rn in remote:
         n = nodes.get(rn.uuid)
@@ -117,7 +121,7 @@ async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
         if not rn.is_connected or rn.is_disabled:
             # падение у лежащей ноды — это не «бан», о нём и так придёт «нода offline»
             tracker.forget(rn.uuid)
-            _drop_handled.discard(rn.uuid)
+            _drop_handled.pop(rn.uuid, None)
             n.speed_bps = n.baseline_bps = n.speed_now_bps = None
             n.speed_drop_since = None
             continue
@@ -139,25 +143,34 @@ async def _update_speeds(db: AsyncSession, remote: list[RemnaNode]) -> None:
 
         # падение видно сразу: по скорости за последний опрос (а если её нет — по среднему за окно)
         level = n.speed_now_bps if n.speed_now_bps is not None else info.current_bps
-        dropped = (
-            level is not None and info.baseline_bps is not None
-            and info.baseline_bps >= min_base
-            and level <= info.baseline_bps * (1 - drop_share)
-        )
-        if not dropped:
+        has_norm = info.baseline_bps is not None and info.baseline_bps >= min_base
+        dropped = has_norm and level is not None and level <= info.baseline_bps * (1 - drop_share)
+
+        # трафик встал: за последние N минут через ноду прошло меньше X МБ (у ноды, где трафик обычно есть)
+        stalled_reason = None
+        if has_norm and no_traffic_sec > 0:
+            got = tracker.bytes_in(rn.uuid, no_traffic_sec, ts)
+            if got is not None and got[1] >= no_traffic_sec * 0.9 and got[0] < no_traffic_bytes:
+                stalled_reason = (f"трафик не идёт: за {no_traffic_sec // 60} мин прошло "
+                                  f"{got[0] / 1_000_000:.2f} МБ при норме {mbps(info.baseline_bps)}")
+
+        if not dropped and not stalled_reason:
             n.speed_drop_since = None
-            _drop_handled.discard(rn.uuid)
+            _drop_handled.pop(rn.uuid, None)
             continue
         if n.speed_drop_since is None:
             n.speed_drop_since = now
-        if now - n.speed_drop_since >= confirm and rn.uuid not in _drop_handled:
-            _drop_handled.add(rn.uuid)
-            triggered.append((n, level, info.baseline_bps))
+        last = _drop_handled.get(rn.uuid)
+        due = last is None or now - last >= RETRIGGER_AFTER
+        # скорость ниже нормы держится confirm минут — или трафик встал совсем: проверяем IP
+        if due and (stalled_reason or now - n.speed_drop_since >= confirm):
+            _drop_handled[rn.uuid] = now
+            triggered.append((n, level or 0.0, info.baseline_bps, stalled_reason))
     await tracker.flush(db)
     await db.commit()
 
-    for n, cur, base in triggered:
-        await investigation_service.on_speed_drop(db, n, cur, base)
+    for n, cur, base, why in triggered:
+        await investigation_service.on_speed_drop(db, n, cur, base, reason=why)
 
 
 async def _drop_foreign(db: AsyncSession, existing: dict[str, Node], remote_ids: set[str], panel: str) -> None:
@@ -177,7 +190,7 @@ async def _drop_foreign(db: AsyncSession, existing: dict[str, Node], remote_ids:
         existing.pop(n.uuid, None)
         _streak.pop(n.uuid, None)
         _missing.pop(n.uuid, None)
-        _drop_handled.discard(n.uuid)
+        _drop_handled.pop(n.uuid, None)
         tracker.forget(n.uuid)
         await db.delete(n)
     await db.commit()
@@ -249,7 +262,7 @@ async def hide_node(db: AsyncSession, uuid: str) -> str | None:
     tracker.forget(uuid)
     await tracker.flush(db)
     _streak.pop(uuid, None)
-    _drop_handled.discard(uuid)
+    _drop_handled.pop(uuid, None)
     await db.commit()
 
     deleted_domain = None

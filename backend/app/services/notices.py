@@ -32,18 +32,17 @@ def _head(emoji: str, title: str) -> str:
 
 
 async def switched(db: AsyncSession, domain: Domain, old_ip: str | None, new_ip: str) -> str:
-    """✅ Замена — IP в бане, A-запись переключена на живой."""
+    """IP в бане, A-запись переключена на живой."""
     alive, total = ip_counts(domain)
     spare = max(alive - 1, 0)  # живые, кроме нового текущего
     unchecked = sum(1 for e in domain.ips if e.is_blocked is None)
     tail = "все IP проверены" if not unchecked else f"не проверено IP: {unchecked}"
     return "\n".join([
-        _head("✅", "Замена"),
-        f"Имя: {esc(await node_name(db, domain.name))}",
-        f"Адрес: <code>{esc(domain.name)}</code>",
-        f"Замена IP: с <code>{esc(old_ip or '—')}</code> на <code>{esc(new_ip)}</code>",
-        f"Живых IP: {alive}/{total}",
-        f"Статус: осталось запасных IP — {spare} ({tail})",
+        f"📩 Имя: {esc(await node_name(db, domain.name))}",
+        f"📍 Адрес: <code>{esc(domain.name)}</code>",
+        f"🖥 Замена IP: с <code>{esc(old_ip or '—')}</code> на <code>{esc(new_ip)}</code>",
+        f"✅ Живых IP: {alive}/{total}",
+        f"💬 Статус: осталось запасных IP — {spare} ({tail})",
     ])
 
 
@@ -52,11 +51,11 @@ async def banned_no_ips(db: AsyncSession, domain: Domain) -> str:
     alive, total = ip_counts(domain)
     return "\n".join([
         _head("🛑", "Бан без замены"),
-        f"Имя: {esc(await node_name(db, domain.name))}",
-        f"Адрес: <code>{esc(domain.name)}</code>",
-        "Замена IP: нет живых IP",
-        f"Живых IP: {alive}/{total}",
-        "Статус: нода заблокирована, добавьте IP",
+        f"📩 Имя: {esc(await node_name(db, domain.name))}",
+        f"📍 Адрес: <code>{esc(domain.name)}</code>",
+        "🖥 Замена IP: нет живых IP",
+        f"⛔ Живых IP: {alive}/{total}",
+        "💬 Статус: нода заблокирована, добавьте IP",
     ])
 
 
@@ -65,27 +64,28 @@ async def banned_no_switch(db: AsyncSession, domain: Domain, reason: str) -> str
     alive, total = ip_counts(domain)
     return "\n".join([
         _head("🟡", "Нода забанена"),
-        f"Имя: {esc(await node_name(db, domain.name))}",
-        f"Адрес: <code>{esc(domain.name)}</code>",
-        f"IP в бане: <code>{esc(domain.current_ip or domain.name)}</code>",
-        f"Живых IP: {alive}/{total}",
-        f"Статус: {esc(reason)}",
+        f"📩 Имя: {esc(await node_name(db, domain.name))}",
+        f"📍 Адрес: <code>{esc(domain.name)}</code>",
+        f"🖥 IP в бане: <code>{esc(domain.current_ip or domain.name)}</code>",
+        f"✅ Живых IP: {alive}/{total}",
+        f"💬 Статус: {esc(reason)}",
     ])
 
 
 async def speed_problem(db: AsyncSession, domain: Domain, ips: list[str], speed: str = "") -> str:
     """Ⓜ️ Проблемы со скоростью — IP не в бане, но трафик не идёт. Одно сообщение: падение + итог."""
+    alive, total = ip_counts(domain)
     lines = [
         _head("Ⓜ️", "Проблемы со скоростью"),
-        f"Нода: {esc(await node_name(db, domain.name))}",
-        f"Домен: <code>{esc(domain.name)}</code>",
-        f"IP: {', '.join(f'<code>{esc(ip)}</code>' for ip in ips) or '—'}",
+        f"📩 Имя: {esc(await node_name(db, domain.name))}",
+        f"📍 Адрес: <code>{esc(domain.name)}</code>",
+        f"🖥 IP: {', '.join(f'<code>{esc(ip)}</code>' for ip in ips) or '—'}",
+        f"✅ Живых IP: {alive}/{total}",
     ]
     if speed:
-        lines.append(f"Скорость: {esc(speed)}")
+        lines.append(f"📉 Скорость: {esc(speed)}")
     lines += [
-        "",
-        "Статус: IP не забанен, но трафик и скорость перестали идти.",
+        "💬 Статус: IP не забанен, но трафик и скорость перестали идти.",
         "Возможно, упала выходящая нода.",
     ]
     return "\n".join(lines)
@@ -95,13 +95,13 @@ async def speed_check_failed(db: AsyncSession, domain: Domain, ip: str, speed: s
     """⚠️ Скорость упала, а проверить IP не удалось (источники не ответили)."""
     lines = [
         _head("⚠️", "Скорость упала, проверить IP не удалось"),
-        f"Нода: {esc(await node_name(db, domain.name))}",
-        f"Домен: <code>{esc(domain.name)}</code>",
-        f"IP: <code>{esc(ip)}</code>",
+        f"📩 Имя: {esc(await node_name(db, domain.name))}",
+        f"📍 Адрес: <code>{esc(domain.name)}</code>",
+        f"🖥 IP: <code>{esc(ip)}</code>",
     ]
     if speed:
-        lines.append(f"Скорость: {esc(speed)}")
-    lines.append(f"Ошибка: {esc(error or '—')}")
+        lines.append(f"📉 Скорость: {esc(speed)}")
+    lines.append(f"💬 Ошибка: {esc(error or '—')}")
     return "\n".join(lines)
 
 

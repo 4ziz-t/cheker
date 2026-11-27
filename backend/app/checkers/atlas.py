@@ -23,6 +23,8 @@
 (не дольше atlas_max_wait_sec), при 429 учитываем Retry-After.
 """
 import asyncio
+import contextlib
+import contextvars
 import time
 from collections import deque
 from typing import Any
@@ -41,6 +43,18 @@ JOB_TIMEOUT = 90.0
 _lock = asyncio.Lock()
 _started: deque[float] = deque()   # время запусков живых проверок (для лимита 6 / 10 мин)
 _blocked_until = 0.0               # 429 от сервиса — до этого момента не шлём
+_urgent_waiting = 0                # сколько срочных проверок ждут места в лимите
+_background: contextvars.ContextVar[bool] = contextvars.ContextVar("atlas_background", default=False)
+
+
+@contextlib.contextmanager
+def background():
+    """Фоновые проверки (ежедневная проверка всех IP) пропускают срочные вперёд."""
+    token = _background.set(True)
+    try:
+        yield
+    finally:
+        _background.reset(token)
 
 
 class AtlasError(Exception):
@@ -116,26 +130,45 @@ class AtlasChecker(BaseChecker):
         raw = self.options.get("atlas_max_wait_sec")
         max_wait = float(600 if raw is None or raw == "" else raw)
         deadline = time.monotonic() + max_wait
-        async with _lock:  # строго по одной, чтобы правильно считать лимит
+        # Очередь с приоритетом: срочные проверки (падение скорости, кнопки) идут раньше
+        # фоновых (ежедневная проверка всех IP). Ждём место в лимите вне блокировки,
+        # чтобы срочная проверка могла занять освободившееся место первой.
+        global _urgent_waiting
+        low = _background.get()
+        if not low:
+            _urgent_waiting += 1
+        try:
             while True:
-                wait = _wait_for_slot()
-                if wait > 0:
-                    if time.monotonic() + wait > deadline:
-                        raise AtlasError(
-                            f"лимит Red Atlas: 6 проверок за 10 минут, свободно через {int(wait)} с — повторите позже"
-                        )
-                    await asyncio.sleep(wait)
+                if low and _urgent_waiting:
+                    if time.monotonic() > deadline:
+                        raise AtlasError("очередь Red Atlas занята срочными проверками — повторю позже")
+                    await asyncio.sleep(1)
                     continue
-                try:
-                    payload: dict[str, Any] = {"target": ip}
-                    if port and port != 443:
-                        payload["port"] = port
-                    started = await self._request("POST", "/check", json=payload)
-                except AtlasRateLimited:
-                    continue  # подождём Retry-After в начале цикла
-                if not started.get("cached"):
-                    _started.append(time.monotonic())
-                break
+                wait = 0.0
+                started: dict[str, Any] | None = None
+                async with _lock:  # строго по одной, чтобы правильно считать лимит
+                    wait = _wait_for_slot()
+                    if wait <= 0:
+                        try:
+                            payload: dict[str, Any] = {"target": ip}
+                            if port and port != 443:
+                                payload["port"] = port
+                            started = await self._request("POST", "/check", json=payload)
+                        except AtlasRateLimited as e:
+                            wait = e.wait
+                        else:
+                            if not started.get("cached"):
+                                _started.append(time.monotonic())
+                if started is not None:
+                    break
+                if time.monotonic() + wait > deadline:
+                    raise AtlasError(
+                        f"лимит Red Atlas: 6 проверок за 10 минут, свободно через {int(wait)} с — повторите позже"
+                    )
+                await asyncio.sleep(min(max(wait, 1.0), 5.0))
+        finally:
+            if not low:
+                _urgent_waiting -= 1
 
         job_id = started.get("id")
         if not job_id:

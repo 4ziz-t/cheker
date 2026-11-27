@@ -17,8 +17,13 @@ def _addr(value: str | None) -> str:
     return (value or "").strip().lower().rstrip(".")
 
 
-async def build_summary(db: AsyncSession, save: bool = False) -> tuple[str, str]:
-    """save — запомнить список «один живой IP», чтобы в следующий раз показать новые."""
+async def build_summary(
+    db: AsyncSession, save: bool = False, sweep: dict | None = None, sweep_seconds: float = 0
+) -> tuple[str, str]:
+    """save — запомнить список «один живой IP», чтобы в следующий раз показать новые.
+
+    sweep — итоги проверки всех IP через Red Atlas (id домена → DomainStat), если она была.
+    """
     from app.services.domain_service import (
         hidden_domain_names,  # локально: без цикла импортов
     )
@@ -100,6 +105,23 @@ async def build_summary(db: AsyncSession, save: bool = False) -> tuple[str, str]
         lines.append(f"🛑 Нет живых IP ({len(none_alive)}):")
         lines += [row(d, label) for d, label in none_alive]
 
+    if sweep:
+        by_id = {d.id: (d, label) for d, label in ordered}
+        rows = [(by_id[i][0], by_id[i][1], st) for i, st in sweep.items() if i in by_id]
+        rows.sort(key=lambda x: [d.name for d, _ in ordered].index(x[0].name))
+        total_ok = sum(st.ok for *_, st in rows)
+        total_banned = sum(st.banned for *_, st in rows)
+        total_unknown = sum(st.unknown for *_, st in rows)
+        minutes = max(round(sweep_seconds / 60), 1)
+        lines += ["", f"🔎 <b>Проверка всех IP (Red Atlas)</b> — {minutes} мин",
+                  f"✅ Живых: {total_ok} · ⛔ В бане: {total_banned}"
+                  + (f" · ❔ Не проверено: {total_unknown}" if total_unknown else "")]
+        for d, label, st in rows:
+            who = esc(label) if label else "без ноды"
+            mark = "🔴" if st.current_banned else ("🟡" if st.banned else "🟢")
+            extra = f" · ❔ {st.unknown}" if st.unknown else ""
+            lines.append(f"{mark} {who} — <code>{esc(d.name)}</code>: ✅ {st.ok} · ⛔ {st.banned}{extra}")
+
     if save:
         await settings_service.set_state(db, ONE_ALIVE_KEY, [d.name for d, _ in one_alive])
         await db.commit()
@@ -111,6 +133,6 @@ async def build_summary(db: AsyncSession, save: bool = False) -> tuple[str, str]
     return "\n".join(lines), plain
 
 
-async def send_summary(db: AsyncSession) -> None:
-    html_text, plain = await build_summary(db, save=True)
+async def send_summary(db: AsyncSession, sweep: dict | None = None, sweep_seconds: float = 0) -> None:
+    html_text, plain = await build_summary(db, save=True, sweep=sweep, sweep_seconds=sweep_seconds)
     await record(db, "daily_summary", "Отчёт по нодам", plain, tg_text=html_text)

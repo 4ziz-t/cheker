@@ -104,6 +104,25 @@ class SpeedTracker:
             self._clear(uuid)  # счётчик сбросили (например, новый месяц)
         self._push(uuid, ts, float(total_bytes))
 
+    def bytes_in(self, uuid: str, seconds: float, ts: float | None = None) -> tuple[float, float] | None:
+        """Сколько байт прошло через ноду за последние seconds секунд.
+
+        Возвращает (байты, сколько секунд реально покрыто историей) или None, если истории нет.
+        """
+        series = self._series.get(uuid)
+        if not series or len(series) < 2:
+            return None
+        end_ts, end_cum = series[-1]
+        start = end_ts - seconds
+        # последняя точка не позже начала окна (или самая первая, если истории меньше окна)
+        start_ts, start_cum = series[0]
+        for t, c in series:
+            if t <= start:
+                start_ts, start_cum = t, c
+            else:
+                break
+        return max(end_cum - start_cum, 0.0), end_ts - start_ts
+
     def add_speed(self, uuid: str, bps: float, ts: float | None = None) -> None:
         """Мгновенная скорость (байт/с) — переводим в накопленный счётчик."""
         ts = ts or time.time()

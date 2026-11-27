@@ -195,7 +195,9 @@ export default function Settings({ onLogout }) {
           <Panel title="Падение скорости ноды">
             <div className="form">
               <p className="field__hint">
-                IP доменов проверяются только тогда, когда у привязанной ноды Remnawave упала скорость.
+                Когда у ноды упала скорость (или встал трафик), Cheker сразу проверяет все IP её домена. Текущий IP в
+                бане — сразу меняет на живой (каждый кандидат проверяется перед подстановкой, смена сверяется в
+                Cloudflare). Не в бане — присылает «Проблемы со скоростью».
               </p>
               <NumberField
                 label="Скорость упала на"
@@ -228,7 +230,24 @@ export default function Settings({ onLogout }) {
                 max={240}
                 value={form.speed_confirm_minutes}
                 onChange={(v) => set('speed_confirm_minutes', v)}
-                hint="Если скорость ниже нормы держится столько минут — приходит уведомление и проверяется IP. 0 — сразу"
+                hint="Если скорость ниже нормы держится столько минут — проверяются IP и приходит итог. 0 — сразу"
+              />
+              <NumberField
+                label="Трафик встал — если за"
+                suffix="мин прошло меньше"
+                min={0}
+                max={60}
+                value={form.no_traffic_minutes}
+                onChange={(v) => set('no_traffic_minutes', v)}
+                hint="Проверка IP сразу, не дожидаясь падения скорости. 0 — не следить"
+              />
+              <NumberField
+                label="Порог трафика"
+                suffix="МБ"
+                min={0}
+                max={10000}
+                value={form.no_traffic_mb}
+                onChange={(v) => set('no_traffic_mb', v)}
               />
               <NumberField
                 label="Не следить за нодами с нормой меньше"
@@ -244,28 +263,13 @@ export default function Settings({ onLogout }) {
           <Panel title="Проверка IP после падения">
             <div className="form">
               <NumberField
-                label="Сколько раз проверять IP"
-                min={1}
-                max={10}
-                value={form.investigation_checks}
-                onChange={(v) => set('investigation_checks', v)}
-                hint="Бан — только если IP в бане во всех проверках. Если хоть раз доступен — проверка останавливается: скорость вернулась — «восстановилась», всё ещё низкая — «IP не в бане, но скорость ноды низкая»"
-              />
-              <NumberField
-                label="Интервал между проверками"
-                suffix="мин"
-                min={1}
-                max={720}
-                value={form.investigation_interval_minutes}
-                onChange={(v) => set('investigation_interval_minutes', v)}
-              />
-              <NumberField
-                label="Пауза перед новой проверкой того же домена"
+                label="Если IP не в бане — не проверять тот же домен снова"
                 suffix="мин"
                 min={0}
                 max={10080}
                 value={form.investigation_cooldown_minutes}
                 onChange={(v) => set('investigation_cooldown_minutes', v)}
+                hint="После бана и смены IP пауза не действует — при новом падении проверка запустится сразу"
               />
               <Toggle
                 checked={form.auto_switch_enabled}
@@ -303,7 +307,7 @@ export default function Settings({ onLogout }) {
                 max={1440}
                 value={form.node_offline_repeat_minutes}
                 onChange={(v) => set('node_offline_repeat_minutes', v)}
-                hint="0 — только одно уведомление. Когда нода вернётся, придёт «снова на связи»"
+                hint="0 — одно уведомление, пока нода не вернётся. Когда вернётся — «снова на связи»"
               />
               <NumberField
                 label="«Снова на связи» — если держится"
@@ -319,15 +323,6 @@ export default function Settings({ onLogout }) {
                 onChange={(v) => set('auto_import_nodes', v)}
                 label="Добавлять адреса нод в «Домены»"
                 hint="Домен или IP новой ноды сам появится во вкладке «Домены» и сразу проверится. Отключённые в панели ноды не добавляются и не показываются"
-              />
-              <NumberField
-                label="Проверять резервные IP каждые"
-                suffix="мин"
-                min={0}
-                max={10080}
-                value={form.reserve_check_minutes}
-                onChange={(v) => set('reserve_check_minutes', v)}
-                hint="Забаненные резервные IP могут разбанить. Если у домена текущий IP в бане, а резервный ожил — IP сменится сразу (при включённой автосмене). 0 — не проверять"
               />
               <NumberField
                 label="Сверять IP доменов с DNS каждые"
@@ -428,7 +423,7 @@ export default function Settings({ onLogout }) {
                 checked={form.daily_summary_enabled}
                 onChange={(v) => set('daily_summary_enabled', v)}
                 label="Отправлять отчёт"
-                hint="Сколько нод в строю, сколько замен IP за сутки, на каких нодах остался один живой IP (и какие из них новые)"
+                hint="В это время все IP проверяются через Red Atlas (по очереди, с учётом лимита 6 проверок за 10 минут), потом приходит один отчёт: по каждой ноде — сколько IP в бане и сколько живых, сколько нод в строю, замен за сутки, где остался один живой IP"
               />
               <label className="field">
                 <span className="field__label">Время отправки ({status?.timezone})</span>

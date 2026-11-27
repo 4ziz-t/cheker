@@ -1,7 +1,7 @@
 """Отправка уведомлений в Telegram (только исходящие сообщения)."""
 import html
-import re
 import logging
+import re
 
 import httpx
 
@@ -54,6 +54,21 @@ async def _send_one(client: httpx.AsyncClient, url: str, chat_id: str, text: str
     return None
 
 
+def _split(text: str, limit: int = 3900) -> list[str]:
+    """Telegram принимает до 4096 символов — длинный отчёт режем по строкам."""
+    if len(text) <= limit:
+        return [text]
+    parts, cur = [], ""
+    for line in text.split("\n"):
+        if cur and len(cur) + len(line) + 1 > limit:
+            parts.append(cur)
+            cur = ""
+        cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        parts.append(cur)
+    return parts
+
+
 async def send_message(text: str, client: httpx.AsyncClient | None = None) -> int:
     """Отправляет сообщение всем получателям. Возвращает, скольким дошло.
 
@@ -67,11 +82,14 @@ async def send_message(text: str, client: httpx.AsyncClient | None = None) -> in
     url = f"{s.telegram_api_url.rstrip('/')}/bot{integrations.get('telegram_bot_token')}/sendMessage"
 
     failed = []
+    parts = _split(text)
     for chat_id in ids:
-        err = await _send_one(client, url, chat_id, text)
-        if err:
-            failed.append(f"{chat_id}: {err}")
-            log.warning("Telegram %s: %s", chat_id, err)
+        for part in parts:
+            err = await _send_one(client, url, chat_id, part)
+            if err:
+                failed.append(f"{chat_id}: {err}")
+                log.warning("Telegram %s: %s", chat_id, err)
+                break
     if failed:
         raise TelegramError(f"Доставлено {len(ids) - len(failed)} из {len(ids)}. Ошибки — " + "; ".join(failed))
     return len(ids)

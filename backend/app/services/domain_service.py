@@ -1,5 +1,6 @@
 """Логика доменов: синхронизация A-записи, проверка пула IP, автосмена."""
 import asyncio
+import contextlib
 import json
 import logging
 import socket
@@ -11,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.checkers import all_checkers
+from app.checkers import atlas as atlas_checker
 from app.core import integrations
 from app.core.database import SessionLocal
 from app.core.timeutils import utcnow
@@ -39,6 +41,8 @@ class CycleState:
     last_finished_at: float | None = None
     last_duration: float | None = None
     checked_domains: int = 0
+    total: int = 0          # сколько доменов в текущей проверке
+    task: asyncio.Task | None = None  # запущенная по кнопке проверка — чтобы её можно было отменить
 
 
 cycle_state = CycleState()
@@ -72,29 +76,57 @@ async def sync_dns(db: AsyncSession, domain: Domain) -> None:
         )
 
 
+async def _write_a_record(cf: CloudflareClient, domain: Domain, new_ip: str) -> None:
+    if domain.cf_record_id:
+        try:
+            await cf.update_a_record(domain.cf_zone_id, domain.cf_record_id, new_ip)
+            return
+        except CloudflareError:
+            domain.cf_record_id = None  # запись могли удалить — попробуем найти заново
+    records = await cf.get_a_records(domain.cf_zone_id, domain.name)
+    if len(records) > 1:
+        raise DnsConflictError(f"У домена {len(records)} A-записи, должна быть одна")
+    if records:
+        rec = await cf.update_a_record(domain.cf_zone_id, records[0].id, new_ip)
+    else:
+        rec = await cf.create_a_record(domain.cf_zone_id, domain.name, new_ip)
+    domain.cf_record_id = rec.id
+
+
+async def _verify_a_record(cf: CloudflareClient, domain: Domain, new_ip: str) -> str | None:
+    """Что сейчас в A-записи по данным Cloudflare (None — записи нет)."""
+    await asyncio.sleep(1.5)
+    records = await cf.get_a_records(domain.cf_zone_id, domain.name)
+    if records:
+        domain.cf_record_id = records[0].id
+        return records[0].content
+    return None
+
+
 async def switch_ip(
-    db: AsyncSession, domain: Domain, new_ip: str, *, manual: bool, reason: str = "", tg_text: str | None = None
-) -> None:
-    """Меняет A-запись в Cloudflare. Бросает CloudflareError при ошибке."""
+    db: AsyncSession, domain: Domain, new_ip: str, *, manual: bool, reason: str = "",
+    tg_text: str | None = None, log_event: bool = True,
+) -> str | None:
+    """Меняет A-запись в Cloudflare и проверяет, что смена действительно применилась.
+
+    Бросает CloudflareError при ошибке (в том числе если Cloudflare принял запрос, но запись не поменялась).
+    log_event=False — событие запишет вызывающий (например, после проверки остальных IP).
+    Возвращает прежний IP.
+    """
     cf = CloudflareClient()
     if not domain.cf_zone_id:
         domain.cf_zone_id = await cf.find_zone_id(domain.name)
 
-    if domain.cf_record_id:
-        try:
-            await cf.update_a_record(domain.cf_zone_id, domain.cf_record_id, new_ip)
-        except CloudflareError:
-            domain.cf_record_id = None  # запись могли удалить — попробуем найти заново
-
-    if not domain.cf_record_id:
-        records = await cf.get_a_records(domain.cf_zone_id, domain.name)
-        if len(records) > 1:
-            raise DnsConflictError(f"У домена {len(records)} A-записи, должна быть одна")
-        if records:
-            rec = await cf.update_a_record(domain.cf_zone_id, records[0].id, new_ip)
-        else:
-            rec = await cf.create_a_record(domain.cf_zone_id, domain.name, new_ip)
-        domain.cf_record_id = rec.id
+    # API иногда отвечает «ок», а запись не меняется — сверяем и при необходимости повторяем
+    actual: str | None = None
+    for _attempt in range(3):
+        await _write_a_record(cf, domain, new_ip)
+        actual = await _verify_a_record(cf, domain, new_ip)
+        if actual == new_ip:
+            break
+        log.warning("%s: Cloudflare не применил смену на %s (сейчас %s), повторяю", domain.name, new_ip, actual)
+    if actual != new_ip:
+        raise CloudflareError(f"Cloudflare не применил смену: в A-записи {actual or 'пусто'}, а не {new_ip}")
 
     old_ip = domain.current_ip
     domain.current_ip = new_ip
@@ -110,9 +142,18 @@ async def switch_ip(
         domain.no_ips_alerted = False
     await db.commit()
 
+    if log_event:
+        await log_switch(db, domain, old_ip, new_ip, manual=manual, reason=reason, tg_text=tg_text)
+    return old_ip
+
+
+async def log_switch(
+    db: AsyncSession, domain: Domain, old_ip: str | None, new_ip: str, *, manual: bool, reason: str = "",
+    tg_text: str | None = None,
+) -> None:
     kind = "ip_switched_manual" if manual else "ip_switched_auto"
     title = "Ручная смена IP" if manual else "IP заменён автоматически"
-    msg = f"{domain.name}: {old_ip or '—'} → {new_ip}"
+    msg = f"{domain.name}: {old_ip or '—'} → {new_ip} (A-запись в Cloudflare проверена)"
     if reason:
         msg += f"\nПричина: {reason}"
     await record(db, kind, title, msg, level="success" if not manual else "info",
@@ -122,20 +163,18 @@ async def switch_ip(
 async def _find_candidate(
     db: AsyncSession, domain: Domain, current_ip: str | None, cache: IPCheckCache
 ) -> str | None:
-    """Следующий доступный IP по порядку после текущего (по кругу).
+    """Первый живой IP для замены.
 
-    Каждый кандидат проверяется прямо сейчас (результат кэшируется на цикл),
-    поэтому запросы тратятся только тогда, когда действительно нужно переключаться.
+    Порядок: сначала «зелёные» (при прошлой проверке были доступны), потом непроверенные,
+    потом те, что были в бане (их могли разбанить) — внутри каждой группы по порядку списка.
+    Каждый кандидат проверяется прямо перед подстановкой (результат кэшируется на цикл).
     """
-    ips = sorted(domain.ips, key=lambda e: e.position)
-    if not ips:
-        return None
-    idx = next((i for i, e in enumerate(ips) if e.ip == current_ip), -1)
-    n = len(ips)
-    for step in range(1, n + 1):
-        entry = ips[(idx + step) % n]
-        if entry.ip == current_ip:
-            continue
+    rank = {False: 0, None: 1, True: 2}
+    ips = sorted(
+        (e for e in domain.ips if e.ip != current_ip),
+        key=lambda e: (rank.get(e.is_blocked, 1), e.position),
+    )
+    for entry in ips:
         res = await cache.get(entry.ip, domain.check_port, entry.checker_list)
         await _report_checker_errors(db, res)
         await _apply_result(db, domain, entry, res)
@@ -413,13 +452,24 @@ async def handle_current_banned(db: AsyncSession, domain: Domain, cache: IPCheck
                           f"A-запись уже не {banned_ip}, а {domain.current_ip or 'пусто'} — проверьте снова")
         return None
 
+    # 1) ищем первый живой IP по порядку — каждый кандидат проверяется прямо перед подстановкой
     candidate = await _find_candidate(db, domain, domain.current_ip, cache)
-    # все IP прогоняем через проверку, чтобы в уведомлении было точное «живых IP»
-    await _check_rest(db, domain, cache)
+    if not candidate:
+        # 2) живых не нашлось — перепроверяем все IP ещё раз заново (без кэша этого цикла)
+        cache = IPCheckCache(cache.options)
+        candidate = await _find_candidate(db, domain, domain.current_ip, cache)
     if candidate:
-        text = await notices.switched(db, domain, banned_ip, candidate)
-        await _safe_switch(db, domain, candidate, f"{banned_ip} в бане", tg_text=text)
-        return candidate if domain.current_ip == candidate else None
+        # 3) сразу ставим живой IP (смена проверяется в Cloudflare), потом допроверяем остальные
+        failed = await _safe_switch(db, domain, candidate, f"{banned_ip} в бане", log_event=False)
+        if failed:
+            await _ban_notice(db, domain, "Нода забанена", f"{domain.name}: {failed}",
+                              await notices.banned_no_switch(db, domain, f"не удалось сменить A-запись: {failed}"))
+            return None
+        await _check_rest(db, domain, cache)
+        await log_switch(db, domain, banned_ip, candidate, manual=False, reason=f"{banned_ip} в бане",
+                         tg_text=await notices.switched(db, domain, banned_ip, candidate))
+        return candidate
+    await _check_rest(db, domain, cache)
     await _set_status(db, domain, DomainStatus.NO_IPS, "Все IP из списка в бане")
     await _ban_notice(db, domain, "Бан без замены", f"{domain.name}: все IP из списка в бане",
                       await notices.banned_no_ips(db, domain))
@@ -524,13 +574,18 @@ async def _process_ip_entry(db: AsyncSession, domain: Domain, cache: IPCheckCach
         await _set_status(db, domain, DomainStatus.ERROR, f"Не удалось проверить IP: {'; '.join(res.errors) or '—'}")
 
 
-async def _safe_switch(db: AsyncSession, domain: Domain, ip: str, reason: str, tg_text: str | None = None) -> None:
+async def _safe_switch(
+    db: AsyncSession, domain: Domain, ip: str, reason: str, tg_text: str | None = None, log_event: bool = True
+) -> str | None:
+    """Смена IP без исключений. Возвращает текст ошибки или None, если всё получилось."""
     try:
-        await switch_ip(db, domain, ip, manual=False, reason=reason, tg_text=tg_text)
+        await switch_ip(db, domain, ip, manual=False, reason=reason, tg_text=tg_text, log_event=log_event)
         await errors.resolve(db, "cloudflare", "Cloudflare")
+        return None
     except (CloudflareError, DnsConflictError) as e:
         await errors.report(db, "cloudflare", "Cloudflare", f"Не удалось сменить IP {domain.name}: {e}")
         await _set_status(db, domain, DomainStatus.ERROR, f"Не удалось сменить IP: {e}")
+        return str(e)
 
 
 # ---------------------------------------------------------------- цикл
@@ -736,10 +791,16 @@ async def run_cycle(domain_ids: list[int] | None = None, all_ips: bool = False) 
                 if domain_ids is None:
                     hidden = await hidden_domain_names(db)
                     domains = [d for d in domains if d.name not in hidden]
+                cycle_state.total = len(domains)
+                cycle_state.checked_domains = 0
+                # проверка всех доменов — фоновая: срочные проверки Red Atlas (падение скорости) идут вперёд
+                bg = atlas_checker.background() if domain_ids is None else contextlib.nullcontext()
                 for d in domains:
                     try:
-                        await process_domain(db, d, cache, cfg["auto_switch_enabled"], all_ips)
+                        with bg:
+                            await process_domain(db, d, cache, cfg["auto_switch_enabled"], all_ips)
                         count += 1
+                        cycle_state.checked_domains = count
                     except Exception as e:  # noqa: BLE001
                         log.exception("Ошибка проверки домена %s", d.name)
                         await db.rollback()
@@ -748,6 +809,9 @@ async def run_cycle(domain_ids: list[int] | None = None, all_ips: bool = False) 
                 if domain_ids is None:
                     await settings_service.set_state(db, "last_check_at", utcnow().isoformat())
                     await db.commit()
+        except asyncio.CancelledError:
+            log.info("Проверка всех доменов отменена (проверено %d)", count)
+            raise
         finally:
             cycle_state.running = False
             cycle_state.last_finished_at = time.time()

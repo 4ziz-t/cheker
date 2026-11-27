@@ -9,12 +9,13 @@ export function useOnlyFilter() {
   return {
     only: ids ? new Set(ids) : null,
     title: params.get('title') || '',
+    show: params.get('show') || '',
     clear: () => setParams({}, { replace: true }),
   };
 }
 
-export function onlyLink(path, ids, title) {
-  const q = new URLSearchParams({ only: ids.join(','), title });
+export function onlyLink(path, ids, title, extra = {}) {
+  const q = new URLSearchParams({ only: ids.join(','), title, ...extra });
   return `${path}?${q.toString()}`;
 }
 

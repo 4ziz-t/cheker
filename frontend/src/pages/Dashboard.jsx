@@ -573,6 +573,7 @@ export default function Dashboard() {
   const { data, error, loading, reload } = usePolling(dashboardApi.get, 15000);
   const [starting, setStarting] = useState(false);
   const [confirmAll, setConfirmAll] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const checkNow = async () => {
     setConfirmAll(false);
@@ -585,6 +586,19 @@ export default function Dashboard() {
       toast.error(e.message);
     } finally {
       setStarting(false);
+    }
+  };
+
+  const cancelCheck = async () => {
+    setCancelling(true);
+    try {
+      await dashboardApi.cancelCheck();
+      toast.info('Проверка отменена');
+      setTimeout(reload, 800);
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -606,15 +620,36 @@ export default function Dashboard() {
         title="Дашборд"
         subtitle="Состояние нод, доменов и IP. Обновляется само каждые 15 секунд"
         actions={
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => setConfirmAll(true)}
-            disabled={starting || running}
-          >
-            {running || starting ? <Spinner size={16} /> : <IconRefresh size={18} />}
-            <span>Проверить все домены</span>
-          </button>
+          running ? (
+            <div className="check-progress">
+              <span className="check-progress__text">
+                <Spinner size={16} />
+                <span>
+                  {st.check.kind === 'daily' ? 'Ежедневная проверка IP' : 'Проверка доменов'}
+                  {st.check.total ? (
+                    <b>
+                      {' '}
+                      {st.check.done}/{st.check.total}
+                    </b>
+                  ) : null}
+                </span>
+              </span>
+              <button type="button" className="btn btn--danger btn--sm" onClick={cancelCheck} disabled={cancelling}>
+                {cancelling ? <Spinner size={14} /> : <IconX size={15} />}
+                <span>Отменить</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setConfirmAll(true)}
+              disabled={starting}
+            >
+              {starting ? <Spinner size={16} /> : <IconRefresh size={18} />}
+              <span>Проверить все домены</span>
+            </button>
+          )
         }
       />
 
@@ -667,6 +702,11 @@ export default function Dashboard() {
               total={data.ips.total}
               tone={data.ips.blocked ? 'bad' : 'ok'}
               hint={`доступны: ${data.ips.clean}${data.ips.unknown ? ` · не проверены: ${data.ips.unknown}` : ''}`}
+              to={
+                data.ips.blocked && data.ips.banned_domains?.length
+                  ? onlyLink('/domains', data.ips.banned_domains, 'IP в бане', { show: 'banned' })
+                  : undefined
+              }
             />
             <StatCard
               icon={IconSwap}

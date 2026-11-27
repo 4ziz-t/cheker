@@ -37,13 +37,14 @@ DEFAULTS: dict[str, Any] = {
     "speed_min_baseline_mbps": 1.0,    # не следить за почти пустыми нодами
     "speed_confirm_minutes": 5,        # падение должно держаться N минут, потом уведомление и проверка IP
     "dns_refresh_minutes": 5,          # как часто сверять IP доменов с DNS (A-запись могли поменять вручную)
-    "reserve_check_minutes": 120,      # как часто проверять резервные IP (их могли разбанить); 0 — не проверять
+    "no_traffic_minutes": 3,           # трафик встал: за N минут прошло меньше no_traffic_mb — проверка IP сразу
+    "no_traffic_mb": 1,
     "node_offline_alert_minutes": 10,  # «нода недоступна» — если не подключена дольше N минут
-    "node_offline_repeat_minutes": 10,  # и дальше повторять каждые N минут, пока не вернётся (0 — один раз)
+    "node_offline_repeat_minutes": 0,  # повторять каждые N минут, пока не вернётся (0 — одно уведомление)
     # --- проверка IP после падения скорости ---
     "investigation_checks": 3,         # сколько раз проверять IP
     "investigation_interval_minutes": 30,
-    "investigation_cooldown_minutes": 180,  # после завершения не начинать новую N минут
+    "investigation_cooldown_minutes": 60,  # после завершения не начинать новую N минут
     "auto_switch_enabled": True,
     # --- периодическая проверка доменов/IP без привязанной ноды ---
     "unlinked_check_enabled": False,
@@ -152,6 +153,15 @@ async def migrate(db: AsyncSession) -> None:
     if not await get_state(db, "migrated_remna_order"):
         await set_state(db, "node_order", [])
         await set_state(db, "migrated_remna_order", True)
+        await db.commit()
+
+    # Нода недоступна — одно уведомление (было: каждые 10 мин); пауза после «не бан» — 60 мин (было 180).
+    if not await get_state(db, "migrated_offline_once"):
+        for key, old, new in (("node_offline_repeat_minutes", 10, 0), ("investigation_cooldown_minutes", 180, 60)):
+            row = await db.get(Setting, key)
+            if row and json.loads(row.value) == old:
+                row.value = json.dumps(new)
+        await set_state(db, "migrated_offline_once", True)
         await db.commit()
 
     # Ежедневный отчёт теперь в 07:00 (было 10:00): меняем, только если стояло старое значение.

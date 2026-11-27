@@ -10,6 +10,7 @@ export const dashboardApi = {
   get: () => api.get('/dashboard'),
   status: () => api.get('/system/status'),
   checkNow: () => api.post('/system/check-now'),
+  cancelCheck: () => api.post('/system/check-cancel'),
   check: (body) => api.post('/tools/check', body),
 };
 
@@ -17,6 +18,7 @@ export const domainsApi = {
   list: () => api.get('/domains'),
   lookup: (name) => api.get(`/domains/lookup?name=${encodeURIComponent(name)}`),
   get: (id) => api.get(`/domains/${id}`),
+  cloudflare: (id, refresh = false) => api.get(`/domains/${id}/cloudflare${refresh ? '?refresh=true' : ''}`),
   create: (data) => api.post('/domains', data),
   update: (id, data) => api.patch(`/domains/${id}`, data),
   setIps: (id, ips) => api.put(`/domains/${id}/ips`, { ips }),

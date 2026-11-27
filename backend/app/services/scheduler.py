@@ -11,15 +11,14 @@ from app.core.database import SessionLocal
 from app.core.timeutils import local_tz, utcnow
 from app.models import Event, UserSession
 from app.services import investigation_service, settings_service
+from app.services.daily import start_daily
 from app.services.domain_service import (
     check_many,
-    check_reserves,
     refresh_dns,
     run_cycle,
     unlinked_domain_ids,
 )
 from app.services.node_service import poll_nodes
-from app.services.summary import send_summary
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +31,6 @@ class Scheduler:
         self.next_unlinked_check: float | None = None
         self._wake_nodes = asyncio.Event()
         self._wake_dns = asyncio.Event()
-        self._wake_reserve = asyncio.Event()
         self.next_node_poll: float | None = None
 
     def start(self) -> None:
@@ -43,7 +41,6 @@ class Scheduler:
         ]
         self._tasks.append(asyncio.create_task(self._nodes_loop(), name="nodes"))
         self._tasks.append(asyncio.create_task(self._dns_loop(), name="dns"))
-        self._tasks.append(asyncio.create_task(self._reserve_loop(), name="reserve"))
 
     async def stop(self) -> None:
         for t in self._tasks:
@@ -91,22 +88,6 @@ class Scheduler:
             except Exception:  # noqa: BLE001
                 log.exception("Ошибка сверки IP доменов с DNS")
             await self._sleep_or_wake(self._wake_dns, minutes * 60)
-
-    async def _reserve_loop(self) -> None:
-        """Резервные IP: проверяем раз в N минут — забаненные могли разбанить."""
-        await asyncio.sleep(120)
-        while True:
-            minutes = 120
-            try:
-                async with SessionLocal() as db:
-                    minutes = int(await settings_service.get(db, "reserve_check_minutes"))
-                if minutes > 0:
-                    count = await check_reserves()
-                    if count:
-                        log.info("Проверено резервных IP: %d", count)
-            except Exception:  # noqa: BLE001
-                log.exception("Ошибка проверки резервных IP")
-            await self._sleep_or_wake(self._wake_reserve, (minutes or 30) * 60)
 
     def wake_investigations(self) -> None:
         self._wake_investigations.set()
@@ -189,7 +170,8 @@ class Scheduler:
                 return
             await settings_service.set_state(db, "last_summary_date", today)
             await db.commit()
-            await send_summary(db)
+        # проверка всех IP через Red Atlas идёт долго (очередь лимита) — в фоне, отчёт придёт в конце
+        start_daily()
 
 
 scheduler = Scheduler()

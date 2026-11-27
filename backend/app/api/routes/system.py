@@ -14,6 +14,7 @@ from app.core.timeutils import utcnow
 from app.models import Domain, DomainIP, Event, Investigation, Node
 from app.schemas import DomainCreate, EventOut, InvestigationOut, normalize_ip
 from app.services import domain_service, node_service, settings_service
+from app.services.daily import cancel_daily, sweep_state
 from app.services.domain_service import cycle_state, detect_current_ip, run_cycle
 from app.services.events import errors
 from app.services.ip_check import check_ip
@@ -39,7 +40,10 @@ def _status() -> dict:
         },
         "active_errors": [{"key": k, "message": v} for k, v in errors.active.items()],
         "check": {
-            "running": cycle_state.running,
+            "running": cycle_state.running or sweep_state.running,
+            "kind": "daily" if sweep_state.running else ("all" if cycle_state.running else None),
+            "done": sweep_state.done if sweep_state.running else cycle_state.checked_domains,
+            "total": sweep_state.total if sweep_state.running else cycle_state.total,
             "last_started_at": _ts(cycle_state.last_started_at),
             "last_finished_at": _ts(cycle_state.last_finished_at),
             "last_duration": cycle_state.last_duration,
@@ -59,7 +63,21 @@ async def system_status():
 async def check_now():
     if cycle_state.running:
         raise HTTPException(status.HTTP_409_CONFLICT, "Проверка уже идёт")
-    spawn(run_cycle())
+    cycle_state.task = spawn(run_cycle())
+    return {"ok": True}
+
+
+@router.post("/system/check-cancel")
+async def check_cancel():
+    """Отменить проверку всех доменов (кнопка) или ежедневную проверку всех IP."""
+    cancelled = False
+    if cycle_state.task and not cycle_state.task.done():
+        cycle_state.task.cancel()
+        cancelled = True
+    if cancel_daily():
+        cancelled = True
+    if not cancelled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Сейчас ничего не проверяется")
     return {"ok": True}
 
 
@@ -134,8 +152,10 @@ async def dashboard(db: AsyncSession = Depends(get_db)):
     enabled = [d for d in domains if d.enabled]
     visible_ids = {d.id for d in domains}
 
-    ip_rows = [(ip, b) for ip, b, did in (await db.execute(
-        select(DomainIP.ip, DomainIP.is_blocked, DomainIP.domain_id))).all() if did in visible_ids]
+    raw_ips = [row for row in (await db.execute(
+        select(DomainIP.ip, DomainIP.is_blocked, DomainIP.domain_id))).all() if row[2] in visible_ids]
+    ip_rows = [(ip, b) for ip, b, _ in raw_ips]
+    banned_domains = sorted({did for _, b, did in raw_ips if b is True})  # домены, где есть IP в бане
     unique: dict[str, bool | None] = {}
     for ip, blocked in ip_rows:
         prev = unique.get(ip)
@@ -202,6 +222,7 @@ async def dashboard(db: AsyncSession = Depends(get_db)):
             "blocked": sum(1 for v in unique.values() if v is True),
             "clean": sum(1 for v in unique.values() if v is False),
             "unknown": sum(1 for v in unique.values() if v is None),
+            "banned_domains": banned_domains,
         },
         "last_24h": {
             "blocked": day_counts.get("ip_blocked", 0),

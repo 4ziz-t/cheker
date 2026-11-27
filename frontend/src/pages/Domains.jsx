@@ -42,7 +42,7 @@ export default function Domains() {
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
-  const { only, title: onlyTitle, clear: clearOnly } = useOnlyFilter();
+  const { only, title: onlyTitle, show: onlyShow, clear: clearOnly } = useOnlyFilter();
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -171,6 +171,19 @@ export default function Domains() {
                       </span>
                     )}
                   </div>
+                  {onlyShow === 'banned' && d.ips.some((i) => i.is_blocked === true) && (
+                    <div className="domain-row__banned">
+                      <span className="muted small">В бане:</span>
+                      {d.ips
+                        .filter((i) => i.is_blocked === true)
+                        .map((i) => (
+                          <span key={i.ip} className="banned-ip mono">
+                            {i.ip}
+                            {i.ip === d.current_ip && <span className="banned-ip__cur">текущий</span>}
+                          </span>
+                        ))}
+                    </div>
+                  )}
                   {d.status_message && d.status !== 'ok' && (
                     <p className={`domain-row__msg text-${DOMAIN_STATUS[d.status]?.tone || 'muted'}`}>
                       {d.status_message}
