@@ -1,0 +1,3 @@
+# скрипты для Linux-сервера — всегда с LF, иначе bash на сервере споткнётся о \r
+*.sh text eol=lf
+Caddyfile text eol=lf

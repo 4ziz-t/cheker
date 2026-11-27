@@ -228,7 +228,7 @@ export default function Settings({ onLogout }) {
                 max={240}
                 value={form.speed_confirm_minutes}
                 onChange={(v) => set('speed_confirm_minutes', v)}
-                hint="0 — проверка IP запускается сразу, как только скорость упала"
+                hint="Если скорость ниже нормы держится столько минут — приходит уведомление и проверяется IP. 0 — сразу"
               />
               <NumberField
                 label="Не следить за нодами с нормой меньше"

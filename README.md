@@ -29,14 +29,10 @@
 
 > Сервер с Cheker лучше держать **вне РФ**: из РФ запросы к Cloudflare API и Telegram сами могут упереться в блокировки.
 
-## Запуск на VPS
+## Установка одной командой
 
 ```bash
-git clone <repo> cheker && cd cheker      # или скопируйте папку
-cp .env.example .env
-nano .env                                  # заполните пароль, домен и токены
-docker compose up -d --build
-docker compose logs -f backend
+bash <(curl -fsSL https://raw.githubusercontent.com/4ziz-t/cheker/main/install.sh)
 ```
 
 Панель откроется на `https://PANEL_DOMAIN`.
